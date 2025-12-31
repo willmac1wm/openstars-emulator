@@ -1,0 +1,5 @@
+{
+  "name": "OpenSTARS Emulator",
+  "description": "A high-fidelity, browser-based radar terminal game inspired by real-world STARS (Standard Terminal Automation Replacement System) ATC interfaces. Manage air traffic, issue vectors, and maintain separation in a generated airspace.",
+  "requestFramePermissions": []
+}
