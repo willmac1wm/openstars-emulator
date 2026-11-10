@@ -167,14 +167,33 @@ function ensureEngine(): Promise<void> {
   return enginePromise;
 }
 
+/** True when transformers.js already stashed Kokoro weights in the Cache API. */
+async function kokoroInBrowserCache(): Promise<boolean> {
+  if (typeof caches === 'undefined') return false;
+  try {
+    for (const name of await caches.keys()) {
+      const cache = await caches.open(name);
+      for (const req of await cache.keys()) {
+        if (/Kokoro|model_quantized\.onnx/i.test(req.url)) return true;
+      }
+    }
+  } catch {
+    /* private mode / missing Cache API */
+  }
+  return false;
+}
+
 async function initEngine() {
   loadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const cachedBefore = await kokoroInBrowserCache();
   setRuntime({ phase: 'loading', progress: 0.02, engine: 'none', fromCache: false, warmed: false, loadMs: 0 });
   try {
-    kokoro = await withTimeout(loadKokoro(), LOAD_TIMEOUT_MS);
+    const loaded = await withTimeout(loadKokoro(), LOAD_TIMEOUT_MS);
+    kokoro = loaded.engine;
     useBrowser = false;
     const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - loadStartedAt;
-    const fromCache = elapsed < CACHE_FAST_MS;
+    // Fast CDN ≠ cache. Prefer Cache API presence, else "no partial download progress".
+    const fromCache = cachedBefore || (!loaded.sawPartialProgress && elapsed < CACHE_FAST_MS);
     setRuntime({ phase: 'ready', progress: 1, engine: 'kokoro', fromCache, loadMs: Math.round(elapsed) });
     await warmUpKokoro();
   } catch {
@@ -185,7 +204,7 @@ async function initEngine() {
   }
 }
 
-async function loadKokoro(): Promise<KokoroEngine> {
+async function loadKokoro(): Promise<{ engine: KokoroEngine; sawPartialProgress: boolean }> {
   const [{ KokoroTTS }, transformers] = await Promise.all([
     import('kokoro-js'),
     import('@huggingface/transformers'),
@@ -206,7 +225,8 @@ async function loadKokoro(): Promise<KokoroEngine> {
   }
 
   const files = new Map<string, { loaded: number; total: number }>();
-  return KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
+  let sawPartialProgress = false;
+  const engine = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
     dtype: KOKORO_DTYPE,
     device: 'wasm',
     progress_callback: (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
@@ -214,6 +234,7 @@ async function loadKokoro(): Promise<KokoroEngine> {
         const key = info.file || 'model';
         const total = info.total && info.total > 0 ? info.total : KOKORO_APPROX_BYTES;
         const loaded = info.loaded || 0;
+        if (loaded > 0 && loaded < total) sawPartialProgress = true;
         files.set(key, { loaded, total });
         let sumLoaded = 0;
         let sumTotal = 0;
@@ -229,6 +250,7 @@ async function loadKokoro(): Promise<KokoroEngine> {
       }
     },
   });
+  return { engine, sawPartialProgress };
 }
 
 /** First Kokoro inference is slow even after download — burn one short generate. */
