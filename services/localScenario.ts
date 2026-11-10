@@ -1,6 +1,9 @@
 import { Aircraft, AlertLevel, GameScenario, ScenarioDifficulty } from '../types';
 import { CENTER, GATE_RADIUS } from '../constants';
-import { createSeededRandom, seedFromLabel } from './seededRandom';
+import { createSeededRandom } from './seededRandom';
+import { DEFAULT_SCENARIO_SEEDS, resolveSeedInput } from './scenarioSeed';
+
+export { DEFAULT_SCENARIO_SEEDS };
 
 const FLEET: { callsign: string; type: string }[] = [
   { callsign: 'AAL421', type: 'A321' },
@@ -42,13 +45,6 @@ const EXPO_SCRIPT: Array<{
   { callsign: 'UAL123', type: 'B738', angle: 145, dist: GATE_RADIUS + 70, heading: 310, altitude: 85, speed: 230, destination: 'WES' },
   { callsign: 'DAL456', type: 'B737', angle: 300, dist: GATE_RADIUS + 60, heading: 120, altitude: 75, speed: 210, destination: 'EAS' },
 ];
-
-export const DEFAULT_SCENARIO_SEEDS: Record<ScenarioDifficulty, string> = {
-  Expo: 'expo-booth',
-  Easy: 'trainee-1',
-  Medium: 'controller-1',
-  Hard: 'veteran-1',
-};
 
 function aircraftCount(difficulty: ScenarioDifficulty): number {
   if (difficulty === 'Expo') return 3;
@@ -101,12 +97,13 @@ function buildExpoAircraft(): Aircraft[] {
 
 /**
  * Built-in traffic for the free web demo. No API key and no network.
- * Pass the same seedLabel to replay the same spawn pattern.
+ * Pass the same seed (number or label) to replay the same spawn pattern.
+ * Expo layout stays fixed for booth demos; the seed is still recorded for URL sharing.
  */
-export function buildLocalScenario(difficulty: string, seedLabel?: string): GameScenario {
+export function buildLocalScenario(difficulty: string, seedLabel?: string | number): GameScenario {
   const level = normalizeDifficulty(difficulty);
-  const label = seedLabel || DEFAULT_SCENARIO_SEEDS[level];
-  const random = createSeededRandom(seedFromLabel(label));
+  const seed = resolveSeedInput(seedLabel, level);
+  const random = createSeededRandom(seed.numeric);
 
   if (level === 'Expo') {
     return {
@@ -114,7 +111,7 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string): Game
       difficulty: 'Expo',
       description: 'Three aircraft. Clear them through their glowing gates. About ninety seconds.',
       aircraft: buildExpoAircraft(),
-      seedLabel: label,
+      seedLabel: seed.display,
       mode: 'expo',
     };
   }
@@ -189,9 +186,9 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string): Game
   return {
     name: level === 'Easy' ? 'Trainee Sector' : level === 'Hard' ? 'Veteran Sector' : 'Controller Sector',
     difficulty: level,
-    description: `Seeded offline scenario (${label}).`,
+    description: `Seeded offline scenario (${seed.display}).`,
     aircraft,
-    seedLabel: label,
+    seedLabel: seed.display,
     mode: 'standard',
   };
 }

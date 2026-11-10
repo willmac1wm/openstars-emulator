@@ -12,6 +12,7 @@ import { trackEvent, identifyUser } from './services/analytics';
 import { applyCommandPatch, parseCommand } from './services/commandParser';
 import { primePilotVoice, speakPilot } from './services/pilotVoice';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
+import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
   SIM_SPEED_OPTIONS, GATES, NM_3_PX, NM_4_PX,
@@ -55,6 +56,7 @@ const App: React.FC = () => {
   const [isDataOpen, setIsDataOpen] = useState(true);
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
   const [scoreFlash, setScoreFlash] = useState<string | null>(null);
+  const [scenarioSeed, setScenarioSeed] = useState<string | null>(() => readSeedFromLocation());
 
   const requestRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
@@ -116,22 +118,28 @@ const App: React.FC = () => {
 
   const startGame = async (options: StartOptions | string) => {
     const difficulty = typeof options === 'string' ? options : options.difficulty;
-    const seedLabel = typeof options === 'string'
-      ? undefined
-      : options.seedLabel || DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS];
+    const requestedSeed = typeof options === 'string'
+      ? readSeedFromLocation()
+      : (options.seedLabel ?? readSeedFromLocation());
+    const seed = resolveSeedInput(
+      requestedSeed ?? DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS],
+      difficulty,
+    );
     const expo = difficulty === 'Expo';
 
     identifyUser('guest-' + Math.floor(Math.random() * 1000000));
     setPlayMode(expo ? 'expo' : 'standard');
     setScoreFlash(null);
+    setScenarioSeed(seed.display);
+    writeSeedToUrl(seed.display);
     setGameState(SimulationState.LOADING);
     setStatusMessage(expo ? 'OPENING EXPO SCOPE...' : 'INITIALIZING RADAR SCENARIO...');
     setTimeScale(expo ? 4 : DEFAULT_TIME_SCALE);
 
-    trackEvent('Game Started', { difficulty, mode: expo ? 'Expo' : 'Guest' });
+    trackEvent('Game Started', { difficulty, mode: expo ? 'Expo' : 'Guest', seed: seed.display });
 
     try {
-      const scenario = await generateScenario(difficulty, seedLabel);
+      const scenario = await generateScenario(difficulty, seed.display);
       const firstId = scenario.aircraft[0]?.id ?? null;
       setAircraft(scenario.aircraft.map((ac, index) => ({
         ...ac,
@@ -144,7 +152,10 @@ const App: React.FC = () => {
       addLog(expo
         ? `EXPO HOT SEAT. ${scenario.aircraft.length} AIRCRAFT. CLEAR THEM THROUGH THEIR GATES.`
         : `GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
-      if (scenario.seedLabel) addLog(`SCENARIO SEED ${scenario.seedLabel}`);
+      if (scenario.seedLabel) {
+        setScenarioSeed(scenario.seedLabel);
+        addLog(`SCENARIO SEED ${scenario.seedLabel}`);
+      }
       lastTimeRef.current = 0;
       setScore(0);
       setStats({...INITIAL_STATS, startTime: Date.now()});
@@ -440,7 +451,9 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white overflow-hidden touch-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] relative" onContextMenu={(e) => e.preventDefault()}>
       
-      {gameState === SimulationState.MENU && <MainMenu onStart={startGame} highScore={highScore} />}
+      {gameState === SimulationState.MENU && (
+        <MainMenu onStart={startGame} highScore={highScore} activeSeed={scenarioSeed} />
+      )}
       {gameState === SimulationState.SUMMARY && <SummaryScreen score={score} stats={stats} onReset={returnToMenu} />}
 
       {/* PRO DASHBOARD LAYOUT */}
@@ -461,6 +474,15 @@ const App: React.FC = () => {
                   showPrimaryData={showPrimaryData}
                   highlightGateId={selectedAircraft?.destination ?? null}
                 />
+
+                {(gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) && scenarioSeed && (
+                  <div
+                    data-testid="active-seed"
+                    className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-black/80 border border-gray-700 text-green-300 text-[10px] md:text-xs px-3 py-1 rounded font-mono tracking-wider"
+                  >
+                    SEED {scenarioSeed}
+                  </div>
+                )}
 
                 {playMode === 'expo' && gameState === SimulationState.RUNNING && (
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-black/80 border border-green-700 text-green-300 text-[11px] md:text-xs px-3 py-2 rounded shadow-lg text-center">

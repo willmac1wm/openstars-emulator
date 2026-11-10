@@ -16,7 +16,7 @@ const getStartPos = (deg: number, dist: number) => {
     };
 };
 
-export const generateScenario = async (difficulty: string, seedLabel?: string): Promise<GameScenario> => {
+export const generateScenario = async (difficulty: string, seedLabel?: string | number): Promise<GameScenario> => {
     if (difficulty === 'Expo' || !apiKey) {
       return buildLocalScenario(difficulty, seedLabel);
     }

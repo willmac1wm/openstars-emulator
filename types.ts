@@ -61,7 +61,7 @@ export interface GameScenario {
 
 export interface StartOptions {
   difficulty: ScenarioDifficulty | string;
-  seedLabel?: string;
+  seedLabel?: string | number;
 }
 
 export enum SimulationState {

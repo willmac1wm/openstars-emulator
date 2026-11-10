@@ -19,7 +19,7 @@ Do not treat a pull request as a production deploy. Vercel may publish a preview
 
 1. Open the site (or `npm run dev` locally). No login.
 2. For a booth or first-time kid, press **Try the scope** (Expo Hot Seat): three aircraft, ~90 seconds, command chips, pulsing exit gate, score flash.
-3. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). The same seed replays the same traffic every time (`trainee-1`, `controller-1`, `veteran-1`, `expo-booth`).
+3. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). Replay the same traffic with a seed: open `?seed=1234`, or type a seed on the menu. Defaults are `expo-booth`, `trainee-1`, `controller-1`, and `veteran-1`. The active seed is shown on the scope while you play.
 4. Select an aircraft or type its callsign, then a clearance. Example: `AAL421 TL270 A060`. In Expo mode you can tap **Turn left / Turn right / Set exit alt / Speed 210** instead of typing.
 5. The pilot readback shows in amber in the comm log (an `aria-live` region) and is spoken out loud.
 6. Use **VOX**, volume, **RADIO**, and speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the model download begins on the first tap.
