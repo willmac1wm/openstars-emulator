@@ -6,9 +6,11 @@ import MainMenu from './components/MainMenu';
 import SummaryScreen from './components/SummaryScreen';
 import FlightStripBay from './components/FlightStripBay';
 import ReferencePanel from './components/ReferencePanel';
-import { Aircraft, SimulationState, AlertLevel, GameStats } from './types';
-import { generateScenario, getPilotResponse } from './services/geminiService';
+import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource } from './types';
+import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
+import { applyCommandPatch, parseCommand } from './services/commandParser';
+import { primePilotVoice, speakPilot } from './services/pilotVoice';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
   SIM_SPEED_OPTIONS, GATES, NM_3_PX, NM_4_PX,
@@ -35,7 +37,9 @@ const INITIAL_STATS: GameStats = {
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<SimulationState>(SimulationState.MENU);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
-  const [messages, setMessages] = useState<string[]>([INITIAL_INSTRUCTION]);
+  const [messages, setMessages] = useState<CommMessage[]>([
+    { id: 1, text: INITIAL_INSTRUCTION, source: 'system' },
+  ]);
   const [score, setScore] = useState(0);
   const [stats, setStats] = useState<GameStats>(INITIAL_STATS);
   const [highScore, setHighScore] = useState(0);
@@ -54,8 +58,11 @@ const App: React.FC = () => {
   
   const incidentCooldowns = useRef<Map<string, number>>(new Map());
 
-  const addLog = useCallback((msg: string) => {
-    setMessages(prev => [...prev.slice(-19), msg]); 
+  const logSeq = useRef(1);
+  const addLog = useCallback((text: string, source: CommSource = 'system') => {
+    logSeq.current += 1;
+    const id = logSeq.current;
+    setMessages(prev => [...prev.slice(-19), { id, text, source }]);
   }, []);
 
   // Load High Score
@@ -153,7 +160,7 @@ const App: React.FC = () => {
   const returnToMenu = () => {
     setGameState(SimulationState.MENU);
     setAircraft([]);
-    setMessages([INITIAL_INSTRUCTION]);
+    setMessages([{ id: 1, text: INITIAL_INSTRUCTION, source: 'system' }]);
     setScore(0);
     setSelectedId(null);
   };
@@ -171,85 +178,23 @@ const App: React.FC = () => {
 
   // --- Command Parser ---
   const handleCommand = (cmdRaw: string) => {
-    const raw = cmdRaw.trim().toUpperCase();
-    const parts = raw.split(/\s+/);
-    const callsign = parts[0];
-
-    setAircraft(prev => {
-      const matches = prev.filter(ac => ac.callsign === callsign);
-      let targetAc = matches.length === 1 ? matches[0] : (matches.find(ac => ac.id === selectedId) || matches[0]);
-      
-      if (targetAc) {
-        // Only prioritize selection if the target matches the typed callsign
-      } else {
-        addLog(`> TARGET ${callsign} NOT FOUND`);
-        return prev;
-      }
-
-      const targetIndex = prev.findIndex(ac => ac.id === targetAc.id);
-      const newAircraft = [...prev];
-      const ac = { ...newAircraft[targetIndex] };
-      const instructions: string[] = [];
-
-      const cmdBody = raw.substring(callsign.length).trim();
-      const hdgRegex = /(H|HDG|TLH|TRH|TL|TR|T)\s*(\d{3})/gi;
-      const altRegex = /(A|ALT|C)\s*(\d{1,3})/gi;
-      const spdRegex = /(S|SPD)\s*(\d{2,3})/gi;
-
-      let match;
-      while ((match = hdgRegex.exec(cmdBody)) !== null) {
-        const type = match[1];
-        const val = parseInt(match[2], 10);
-        const normalizedHeading = val % 360;
-        ac.targetHeading = normalizedHeading;
-        
-        let directionStr = "";
-        if (type === 'TL' || type === 'TLH') { ac.turnDirection = 'LEFT'; directionStr = "LEFT"; }
-        else if (type === 'TR' || type === 'TRH') { ac.turnDirection = 'RIGHT'; directionStr = "RIGHT"; }
-        else {
-             ac.turnDirection = undefined;
-             let diff = normalizedHeading - ac.heading;
-             while (diff < -180) diff += 360;
-             while (diff > 180) diff -= 360;
-             directionStr = diff > 0 ? "RIGHT" : "LEFT";
-        }
-        instructions.push(`TURN ${directionStr} HEADING ${val.toString().padStart(3, '0')}`);
-      }
-
-      while ((match = altRegex.exec(cmdBody)) !== null) {
-        const val = parseInt(match[2], 10);
-        if (val > ac.altitude) instructions.push(`CLIMB AND MAINTAIN ${val}00`);
-        else if (val < ac.altitude) instructions.push(`DESCEND AND MAINTAIN ${val}00`);
-        else instructions.push(`MAINTAIN ${val}00`);
-        ac.targetAltitude = val;
-      }
-
-      while ((match = spdRegex.exec(cmdBody)) !== null) {
-        const val = parseInt(match[2], 10);
-        if (val > ac.speed) instructions.push(`INCREASE SPEED TO ${val}`);
-        else if (val < ac.speed) instructions.push(`REDUCE SPEED TO ${val}`);
-        else instructions.push(`MAINTAIN ${val} KNOTS`);
-        ac.targetSpeed = val;
-      }
-
-      if (instructions.length === 0) {
-          addLog(`> UNRECOGNIZED COMMAND: ${cmdBody}`);
-          return prev;
-      }
-
-      newAircraft[targetIndex] = ac;
-      const fullMsg = instructions.join(', ');
-      addLog(`> ${callsign}, ${fullMsg}`);
-      
-      trackEvent('Command Issued', { callsign, command: cmdBody });
-
-      setTimeout(async () => {
-        const pilotMsg = await getPilotResponse(callsign, fullMsg);
-        addLog(pilotMsg);
-      }, 1500 + Math.random() * 1000);
-
-      return newAircraft;
-    });
+    primePilotVoice();
+    const parsed = parseCommand(cmdRaw, aircraft, selectedId);
+    if (parsed.kind === 'not_found') {
+      addLog(`TARGET ${parsed.callsign} NOT FOUND`, 'system');
+      return;
+    }
+    addLog(parsed.controllerEcho, 'controller');
+    if (parsed.patch && parsed.aircraftId) {
+      const aircraftId = parsed.aircraftId;
+      const patch = parsed.patch;
+      setAircraft(prev => prev.map(ac => ac.id === aircraftId ? applyCommandPatch(ac, patch) : ac));
+    }
+    if (parsed.readback) {
+      addLog(parsed.readback, 'pilot');
+      speakPilot(parsed.readback, parsed.callsign);
+      trackEvent('Command Issued', { callsign: parsed.callsign, command: parsed.controllerEcho });
+    }
   };
 
   const updatePhysics = useCallback((deltaSeconds: number) => {
@@ -457,6 +402,12 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { requestRef.current = requestAnimationFrame(animate); return () => cancelAnimationFrame(requestRef.current!); }, [gameState, updatePhysics]);
+
+  useEffect(() => {
+    const unlock = () => primePilotVoice();
+    window.addEventListener('pointerdown', unlock);
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, []);
 
   const handleSelect = (id: string) => {
     setSelectedId(id);

@@ -1,76 +1,148 @@
+# OpenSTARS
 
-# OpenSTARS Emulator - Rules & Procedures
+OpenSTARS is a free, browser-based STARS-style ATC radar game. A controller vectors aircraft to exit gates, keeps them separated, and hears each aircraft read the clearance back.
 
-Welcome to the OpenSTARS radar terminal emulator. Your goal is to safely guide aircraft from their entry points to their assigned Exit Gates while maintaining separation and adhering to strict altitude restrictions.
+The free web version is meant for a classroom or school demo. It runs with **no API key, no account, and no analytics**. Scenarios are built in the browser. Pilot voices are synthesized on the device.
 
-## 1. Objectives
-*   **Guide Aircraft to Exit Gates**: Each aircraft has a 3-letter code in its data block (e.g., `NOR`, `SOU`, `EAS`, `WES`). This is their assigned exit.
-*   **Maintain Separation**: Keep aircraft apart to avoid collisions.
-*   **Verify Altitudes**: Ensure aircraft cross the exit gate at the correct altitude.
+## Which site this repo deploys to
 
-## 2. Scoring System
+Production for this repository is **[https://openstars-emulator.vercel.app](https://openstars-emulator.vercel.app)**.
 
-### Gaining Points
-*   **Perfect Exit (+1000)**: Aircraft flies through the center of the correct gate (without touching the parallel corridor lines) at the correct altitude.
-*   **Sloppy Exit (+500)**: Aircraft passes through the correct gate but touches/overlaps the parallel boundary lines.
+That is the GitHub repository homepage, and it is the Vercel project (`openstars-emulator`) updated by this repo. The page title and HTML match this project. These other live demos are different builds and are not updated by this branch:
 
-### Losing Points (Penalties)
-*   **Wrong Altitude (-250)**: Correct gate, but incorrect altitude (see Altitude Rules below).
-*   **Wrong Gate (-500)**: Aircraft exits via a gate other than its assigned destination.
-*   **Off Course (-200)**: Aircraft leaves the radar scope through a wall (not a gate).
-*   **Separation Bust (-50/tick)**: **SEVERE**. Points are deducted continuously while two aircraft are in a "RED" alert state (Loss of Separation).
+- https://macomber-openstars.vercel.app
+- https://stars-gate.vercel.app
 
-## 3. Altitude Rules (CRITICAL)
-You must climb or descend aircraft to specific altitudes based on their exit direction.
+Do not treat a pull request as a production deploy. Vercel may publish a preview URL for the PR; production stays on the link above until someone promotes a deployment.
 
-| Exit Gate | Valid Altitudes (FL) | Rule Type |
-| :--- | :--- | :--- |
-| **NORTH (NOR)** | **7000** (070), **9000** (090) | ODD |
-| **EAST (EAS)** | **7000** (070), **9000** (090) | ODD |
-| **SOUTH (SOU)** | **6000** (060), **8000** (080) | EVEN |
-| **WEST (WES)** | **6000** (060), **8000** (080) | EVEN |
+## Classroom demo
 
-## 4. Separation Standards
-*   **Lateral**: 3 Nautical Miles (NM).
-*   **Vertical**: 1,000 feet.
-*   **Diverging Exception**: If aircraft are diverging (moving apart) by **15 degrees or more**, lateral separation is not required (Tail-to-Tail rule).
+1. Open the site (or `npm run dev` locally).
+2. Choose **Play as guest**. The email box is optional and does nothing unless an operator has set `VITE_POSTHOG_KEY`. Leave it blank.
+3. Pick **Trainee** (4 aircraft), **Controller** (8), or **Veteran** (12).
+4. Press **Initialize radar**.
+5. Select an aircraft or type its callsign, then a clearance. Example: `AAL421 TL270 A060`.
+6. The pilot readback shows in amber in the comm log (the log is an `aria-live` region, so a screen reader announces it) and is spoken out loud.
+7. Use the **VOX** button for voice on/off, the first slider for volume, **RADIO** for a light band-pass radio effect, and the second slider for speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the model download begins on the first tap, not during the initial page load.
+8. Speed up the sim with the rate buttons while aircraft cross the sector. Score points by exiting the assigned gate at a legal altitude without clipping the gate edges.
 
-### Alert Colors
-*   **RED (CRITICAL)**: < 3NM and Converging. (Points Lost!)
-*   **YELLOW (WARNING)**: < 4NM or Diverging. (Monitor closely).
+No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, the app may ask Gemini for a scenario and falls back to the built-in traffic when that request fails.
 
-## 5. Controls & Interface
+## Pilot voices
 
-### Data Block Management
-You can move the text label around the aircraft target to prevent overlapping.
-*   **Select Aircraft**: Click the target or type the callsign.
-*   **Move Label**: Use **Numpad Keys (1-9)** or **Arrow Keys**.
-*   **NOTE**: If you are typing in the command box, hold **SHIFT** + **Numpad/Arrows** to move the label.
+Typed clearances are parsed with the same command grammar the scope already used. Each supported instruction has a fixed readback template. Nothing is sent to a language model to invent phraseology, so the words stay stable offline.
 
-### Simulation Speed
-Use the buttons in the top right corner of the map to speed up time (1x, 2x, 4x, 10x) during long transits.
+Speech uses **[Kokoro-82M](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX)** through **[kokoro-js](https://github.com/hexgrad/kokoro)** (Transformers.js / ONNX, WASM). It was chosen because one small model carries many distinct English voices, the weights are Apache-2.0, and the whole synthesis runs in the browser. There is no paid TTS API and no server to host.
 
-## 6. Command Reference
-Commands can be typed in the input box. You can chain commands together.
+- Quantized weights: `onnx/model_quantized.onnx` (Kokoro dtype `q8`), **92,361,116 bytes**, downloaded from Hugging Face the first time voice is used and stored in the browser HTTP cache.
+- Each pilot voice file is **522,240 bytes** (`voices/<id>.bin`), downloaded on first use of that voice and stored in the Cache API (`kokoro-voices`).
+- The ONNX runtime is **21,596,019 bytes**, served from this same site, and loads only after VOX is on and the user has clicked or typed. The page itself stays a normal Vite bundle. A headless Chromium run of the production build spoke the first readback about **24 seconds** after opening the page, which included that weight download and the first synthesis. Later visits use the cache. Blocking the model host falls back to the browser voice and the on-screen readback still appears.
+- Eight voices are assigned from the callsign, so the same aircraft always sounds the same: `am_michael`, `am_fenrir`, `am_puck`, `af_bella`, `af_nicole`, `af_sarah`, `am_echo`, `af_sky`.
+- If the model cannot be fetched, WASM fails, or the first synthesis takes longer than about 8 seconds, the app switches to the browser **Web Speech API** (`speechSynthesis`) and labels the control **BROWSER**. Readback text still appears either way.
+- The radio toggle runs the neural audio through a high-pass / low-pass pair, a little presence, mild saturation, and quiet filtered noise. The browser speech fallback cannot use that effect.
 
-### Heading (H)
-*   **`H [heading]`**: Turn shortest direction.
-    *   *Ex:* `UAL123 H 090`
-*   **`TL [heading]`**: Turn **LEFT** (Force left turn).
-    *   *Ex:* `UAL123 TL 270`
-*   **`TR [heading]`**: Turn **RIGHT** (Force right turn).
-    *   *Ex:* `UAL123 TR 090`
+### Licenses (code and weights)
 
-### Altitude (A)
-*   **`A [altitude]`**: Climb or Descend to altitude (in hundreds).
-    *   *Ex:* `UAL123 A 070` (Climb/Descend to 7,000ft)
-    *   *Ex:* `UAL123 C 070` (Alternate syntax)
+Free for a public school demo:
 
-### Speed (S)
-*   **`S [knots]`**: Increase or Reduce speed.
-    *   *Ex:* `UAL123 S 210` (Maintain 210 knots)
+| Piece | License |
+| --- | --- |
+| `kokoro-js` | Apache-2.0 |
+| Kokoro-82M weights and the voice style files in `onnx-community/Kokoro-82M-v1.0-ONNX` (upstream [hexgrad/kokoro](https://github.com/hexgrad/kokoro)) | Apache-2.0 |
+| `@huggingface/transformers`, `onnxruntime-web` | Apache-2.0 |
+| `phonemizer`, which Kokoro uses for grapheme-to-phoneme | Apache-2.0 package. It embeds **eSpeak NG**, which is **GPL-3.0**. The pronunciation engine is the GPL part of the voice stack. |
+| Web Speech API fallback | Built into the browser. No extra download and no extra license fee. |
 
-### Combined Commands
-You can issue multiple instructions in a single line. Spaces are optional between letters and numbers.
-*   `UAL123 H090 A070` (Turn 090, Altitude 7000)
-*   `AAL404 TL270 S210 A060` (Turn Left 270, Speed 210, Altitude 6000)
+The iOS wrapper is still the existing Capacitor project (`webDir: dist`). Neural TTS is loaded only in the web view; if WASM is unavailable there, readbacks use `speechSynthesis` and the on-screen log.
+
+## Command reference and example readbacks
+
+Callsign, then instructions. Spaces between the letter and the number are optional. Headings are three digits (`090`, not `90`). Altitude is hundreds of feet (`070` = 7,000). Several instructions may share one line.
+
+Numbers follow JO 7110.65 / AIM radiotelephony: headings and speeds are individual digits, the digit 9 is "niner", altitudes are thousands and hundreds (`one zero thousand`, `niner thousand`), and airline callsigns use telephony plus group form (`American four twenty-one`). The pilot says **say again** when nothing in the line is a known instruction, and **unable** when a number is outside what this scope accepts (heading above 360, altitude outside 1,000–17,000 feet, speed outside 100–350 knots). An unknown callsign is a scope message, not a pilot.
+
+Examples below assume the aircraft is not already on that heading, altitude, or speed. `H` / `HDG` / `T` turn the short way. `TL` / `TR` force a direction.
+
+| Typed | Pilot readback |
+| --- | --- |
+| `AAL421 H270` (from heading 090) | Turn right heading two seven zero, American four twenty-one |
+| `AAL421 TL270` | Turn left heading two seven zero, American four twenty-one |
+| `UAL123 TR090` | Turn right heading zero niner zero, United one twenty-three |
+| `UAL123 HDG180` (already heading 180) | Heading one eight zero, United one twenty-three |
+| `UAL123 A100` (from 7,000) | Climb and maintain one zero thousand, United one twenty-three |
+| `AAL421 A060` (from above 6,000) | Descend and maintain six thousand, American four twenty-one |
+| `UAL123 A070` (already at 7,000) | Maintain seven thousand, United one twenty-three |
+| `UAL123 C110` | Climb and maintain one one thousand, United one twenty-three |
+| `UAL123 ALT105` | Climb and maintain one zero thousand five hundred, United one twenty-three |
+| `SWA890 S250` (from slower) | Increase speed to two five zero knots, Southwest eight ninety |
+| `SKW221 S180` (from faster) | Reduce speed to one eight zero knots, SkyWest two twenty-one |
+| `ASH310 SPD210` (already 210) | Maintain two one zero knots, Air Shuttle three ten |
+| `AAL404 TL270 S210 A060` | Turn left heading two seven zero, descend and maintain six thousand, reduce speed to two one zero knots, American four zero four |
+| `AAL421 H360` (from heading 090) | Turn left heading three six zero, American four twenty-one |
+| `UAL123 CLIMB NOW` | Say again, United one twenty-three |
+| `UAL123 H999` | Unable, United one twenty-three |
+| `ZZZ999 H090` | Scope: `TARGET ZZZ999 NOT FOUND` |
+
+Accepted aliases: `HDG` and `T` for a shortest-turn heading, `TLH` / `TRH` for a forced turn, `ALT` and `C` for altitude, `SPD` for speed.
+
+## Run locally
+
+```bash
+npm install
+npm test
+npm run dev
+npm run build
+```
+
+`npm test` checks phraseology, the command parser, and the offline scenario. The dev server is http://localhost:8080.
+
+Optional environment variables (none are required):
+
+- `VITE_GEMINI_API_KEY` — optional scenario text from Gemini. Omit it for the classroom build.
+- `VITE_POSTHOG_KEY` — optional analytics. **Unset by default.** The app does not load PostHog and does not record sessions unless this is set. There is no key in the source.
+
+## Rules and procedures
+
+Guide aircraft from their entry points to their assigned exit gates. Keep separation, and cross the gate at a legal altitude.
+
+### Objectives
+
+- **Guide aircraft to exit gates.** The data block shows a 3-letter exit: `NOR`, `SOU`, `EAS`, `WES`.
+- **Maintain separation.**
+- **Verify altitudes** at the exit.
+
+### Scoring
+
+- **Perfect exit (+1000):** through the center of the correct gate, at the correct altitude, without touching the corridor lines.
+- **Sloppy exit (+500):** correct gate, but overlapping the boundary lines.
+- **Wrong altitude (−250):** correct gate, illegal altitude.
+- **Wrong gate (−500).**
+- **Off course (−200):** leaves through a wall instead of a gate.
+- **Separation bust (−50 per tick)** while two aircraft are in a red loss-of-separation state.
+
+The score does not go below zero.
+
+### Altitude rules
+
+| Exit gate | Valid altitudes | Rule |
+| --- | --- | --- |
+| NORTH (NOR) | 7,000 and 9,000 | Odd |
+| EAST (EAS) | 7,000 and 9,000 | Odd |
+| SOUTH (SOU) | 6,000 and 8,000 | Even |
+| WEST (WES) | 6,000 and 8,000 | Even |
+
+### Separation
+
+- Lateral: 3 nautical miles.
+- Vertical: 1,000 feet.
+- If aircraft are diverging by 15 degrees or more, lateral separation is not required.
+
+Red means less than 3 NM and converging. Yellow means less than 4 NM, or diverging inside 3 NM.
+
+### Data blocks and sim speed
+
+Click a target or type the callsign. Move the data-block label with the numpad or arrow keys. While the command box is focused, hold Shift. Sim speed is 1x, 2x, 4x, or 10x.
+
+## iOS
+
+`capacitor.config.ts` is unchanged (`appId` `com.openstars.emulator`, `webDir` `dist`). Build the web app with `npm run build`, then use the existing Capacitor iOS project. Pilot voices do not add a native plugin.

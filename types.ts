@@ -79,6 +79,14 @@ export interface GameStats {
   startTime: number;
 }
 
+export type CommSource = 'system' | 'controller' | 'pilot';
+
+export interface CommMessage {
+  id: number;
+  text: string;
+  source: CommSource;
+}
+
 export interface RadarConfig {
   scale: number; // Pixels per nm
   range: number; // NM radius

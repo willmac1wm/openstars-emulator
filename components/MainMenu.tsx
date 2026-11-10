@@ -78,7 +78,18 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore }) => {
                         </div>
                     </section>
                     <section className="space-y-2">
-                        <h3 className="text-green-400 font-bold text-lg">3. CRITICAL RULES</h3>
+                        <h3 className="text-green-400 font-bold text-lg flex items-center gap-2">
+                            <Command size={18}/> 3. PILOT READBACKS
+                        </h3>
+                        <p>
+                            Type a clearance such as <span className="text-white">AAL421 H270 A100</span>. The addressed
+                            aircraft reads it back on the speaker and in the comm log. Turn voices on or off with
+                            <span className="text-white"> VOX</span>. The first transmission downloads a free in-browser voice;
+                            after that it works offline.
+                        </p>
+                    </section>
+                    <section className="space-y-2">
+                        <h3 className="text-green-400 font-bold text-lg">4. CRITICAL RULES</h3>
                         <div className="border border-red-900/50 bg-red-900/10 p-3 rounded">
                             <strong className="text-red-400">SEPARATION:</strong> Keep aircraft 3 miles apart (laterally) and 1000ft apart (vertically).
                         </div>
@@ -117,6 +128,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore }) => {
                     OPEN<span className="text-green-500">STARS</span>
                 </h1>
                 <div className="text-gray-400 tracking-widest text-sm">RADAR TERMINAL EMULATOR</div>
+                <div className="text-gray-600 text-[10px] tracking-wide">Classroom demo. No account and no API key.</div>
             </div>
 
             {step === 'LOGIN' ? (

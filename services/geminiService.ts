@@ -2,15 +2,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Aircraft, GameScenario, AlertLevel } from "../types";
 import { CENTER, GATE_RADIUS } from "../constants";
+import { buildLocalScenario } from "./localScenario";
 
-// For Vite, environment variables must be prefixed with VITE_
+// Optional. The free web demo never requires a key; it uses buildLocalScenario.
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || '';
-
-if (!apiKey) {
-  console.warn('⚠️ No Gemini API key found. Set VITE_GEMINI_API_KEY in .env.local');
-}
-
-const ai = new GoogleGenAI({ apiKey });
 
 // Helper to get coordinate from angle/distance
 const getStartPos = (deg: number, dist: number) => {
@@ -42,7 +37,10 @@ export const generateScenario = async (difficulty: string): Promise<GameScenario
     Do not specify coordinates, just flight details.
     `;
 
+  if (!apiKey) return buildLocalScenario(difficulty);
+
   try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -184,33 +182,17 @@ export const generateScenario = async (difficulty: string): Promise<GameScenario
         });
     });
 
+    if (generatedAircraft.length === 0) return buildLocalScenario(difficulty);
+
     return {
       name: "Sector Control",
-      difficulty: difficulty as any,
+      difficulty: difficulty as GameScenario['difficulty'],
       description: "Guide aircraft to their assigned exit gates. Avoid collisions.",
       aircraft: generatedAircraft
     };
 
   } catch (error) {
     console.error("Error generating scenario:", error);
-    return {
-      name: "Fallback",
-      difficulty: "Easy",
-      description: "Offline Mode",
-      aircraft: []
-    };
+    return buildLocalScenario(difficulty);
   }
-};
-
-export const getPilotResponse = async (callsign: string, instruction: string): Promise<string> => {
-    let readback = instruction.toLowerCase();
-    
-    readback = readback.replace('climb and maintain', 'climb maintain');
-    readback = readback.replace('descend and maintain', 'descend maintain');
-    readback = readback.replace('increase speed to', 'speed');
-    readback = readback.replace('reduce speed to', 'speed');
-    
-    readback = readback.toUpperCase();
-    
-    return `${readback}, ${callsign}.`;
 };

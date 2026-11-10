@@ -1,50 +1,54 @@
+/**
+ * PostHog stays off unless the site operator sets VITE_POSTHOG_KEY.
+ * The free classroom build does not load the analytics library and does not
+ * send identification or command events.
+ */
 
-import posthog from 'posthog-js';
+type PostHog = {
+  __loaded?: boolean;
+  init: (key: string, options: Record<string, unknown>) => void;
+  identify: (id: string) => void;
+  capture: (eventName: string, properties?: Record<string, unknown>) => void;
+};
 
-// Initialize PostHog with the key provided in context
+let client: PostHog | null = null;
+
 export const initAnalytics = () => {
-  // Only init if not already initialized to prevent double-loading in strict mode
-  if (!posthog.__loaded) {
-    posthog.init('phc_CtptROq4PmHt4avAOX37hl6QQ7oEZN3qe7qa6Fzvyxu', {
-      api_host: 'https://us.i.posthog.com',
-      person_profiles: 'identified_only', // Optimized for anonymous usage
-      session_recording: {
-        maskAllInputs: false, // Allow seeing command input text in replays
-        maskTextSelector: ".password" // Don't record passwords
-      },
+  const key = import.meta.env.VITE_POSTHOG_KEY;
+  if (!key || client) return;
+
+  void import('posthog-js').then(({ default: posthog }) => {
+    if (!import.meta.env.VITE_POSTHOG_KEY || posthog.__loaded) return;
+    posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
+      api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com',
+      person_profiles: 'identified_only',
+      autocapture: false,
       capture_pageview: true,
-      capture_pageleave: true
+      capture_pageleave: true,
+      disable_session_recording: true,
     });
-  }
+    client = posthog as unknown as PostHog;
+  }).catch(() => {
+    client = null;
+  });
 };
 
-// Identify the user (Email or Guest)
 export const identifyUser = (id: string) => {
-    if (posthog.__loaded) {
-        posthog.identify(id);
-    }
+  if (client?.__loaded) client.identify(id);
 };
 
-// Keep track of last fired events to prevent spamming
 const lastEvents: Record<string, number> = {};
 
-// Helper to track custom events with throttling
-export const trackEvent = (eventName: string, properties?: Record<string, any>) => {
+export const trackEvent = (eventName: string, properties?: Record<string, unknown>) => {
+  if (!client?.__loaded) return;
+
   const now = Date.now();
-  
-  // Create a unique key for deduplication
   let key = eventName;
-  if (properties?.pair) key += `-${properties.pair}`;
-  if (properties?.callsign) key += `-${properties.callsign}`;
-  if (properties?.command) key += `-${properties.command}`;
+  if (typeof properties?.pair === 'string') key += `-${properties.pair}`;
+  if (typeof properties?.callsign === 'string') key += `-${properties.callsign}`;
+  if (typeof properties?.command === 'string') key += `-${properties.command}`;
 
-  // Throttle: Don't fire the exact same event/pair more than once every 2 seconds
-  if (lastEvents[key] && now - lastEvents[key] < 2000) {
-    return;
-  }
-
+  if (lastEvents[key] && now - lastEvents[key] < 2000) return;
   lastEvents[key] = now;
-  posthog.capture(eventName, properties);
+  client.capture(eventName, properties);
 };
-
-export default posthog;

@@ -64,6 +64,10 @@ const FlightStripBay: React.FC<FlightStripBayProps> = ({ aircraft, onSelect, sel
           return (
             <div 
                 key={ac.id}
+                data-testid="flight-strip"
+                data-callsign={ac.callsign}
+                data-destination={ac.destination}
+                data-status={ac.status}
                 onClick={() => onSelect(ac.id)}
                 className={`${bg} ${stripBorder} p-2 shadow-sm cursor-pointer hover:bg-gray-800 transition-all font-mono text-xs relative`}
             >

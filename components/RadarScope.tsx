@@ -237,6 +237,9 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
         return (
           <g 
             key={ac.id} 
+            data-callsign={ac.callsign}
+            data-status={ac.status}
+            data-heading={ac.heading}
             transform={`translate(${ac.x}, ${ac.y})`}
             onClick={(e) => {
               e.stopPropagation();
