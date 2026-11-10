@@ -1,5 +1,9 @@
-import { Aircraft, AlertLevel, GameScenario } from '../types';
+import { Aircraft, AlertLevel, GameScenario, ScenarioDifficulty } from '../types';
 import { CENTER, GATE_RADIUS } from '../constants';
+import { createSeededRandom } from './seededRandom';
+import { DEFAULT_SCENARIO_SEEDS, resolveSeedInput } from './scenarioSeed';
+
+export { DEFAULT_SCENARIO_SEEDS };
 
 const FLEET: { callsign: string; type: string }[] = [
   { callsign: 'AAL421', type: 'A321' },
@@ -20,13 +24,30 @@ const FLEET: { callsign: string; type: string }[] = [
 ];
 
 const SPAWN_ZONES = [
-  { min: 60, max: 80, exitOptions: ['SOU', 'WES'] },
-  { min: 130, max: 170, exitOptions: ['NOR', 'WES'] },
-  { min: 220, max: 260, exitOptions: ['NOR', 'EAS'] },
-  { min: 310, max: 350, exitOptions: ['SOU', 'EAS'] },
+  { min: 60, max: 80, exitOptions: ['SOU', 'WES'] as const },
+  { min: 130, max: 170, exitOptions: ['NOR', 'WES'] as const },
+  { min: 220, max: 260, exitOptions: ['NOR', 'EAS'] as const },
+  { min: 310, max: 350, exitOptions: ['SOU', 'EAS'] as const },
 ];
 
-function aircraftCount(difficulty: string): number {
+/** Fixed booth demo: three planes already close, each aimed at a different gate. */
+const EXPO_SCRIPT: Array<{
+  callsign: string;
+  type: string;
+  angle: number;
+  dist: number;
+  heading: number;
+  altitude: number;
+  speed: number;
+  destination: string;
+}> = [
+  { callsign: 'AAL421', type: 'A321', angle: 55, dist: GATE_RADIUS + 55, heading: 215, altitude: 100, speed: 220, destination: 'SOU' },
+  { callsign: 'UAL123', type: 'B738', angle: 145, dist: GATE_RADIUS + 70, heading: 310, altitude: 85, speed: 230, destination: 'WES' },
+  { callsign: 'DAL456', type: 'B737', angle: 300, dist: GATE_RADIUS + 60, heading: 120, altitude: 75, speed: 210, destination: 'EAS' },
+];
+
+function aircraftCount(difficulty: ScenarioDifficulty): number {
+  if (difficulty === 'Expo') return 3;
   if (difficulty === 'Easy') return 4;
   if (difficulty === 'Hard') return 12;
   return 8;
@@ -40,12 +61,62 @@ function startPos(deg: number, dist: number) {
   };
 }
 
+function normalizeDifficulty(difficulty: string): ScenarioDifficulty {
+  if (difficulty === 'Expo' || difficulty === 'Easy' || difficulty === 'Hard' || difficulty === 'Medium') {
+    return difficulty;
+  }
+  return 'Medium';
+}
+
+function buildExpoAircraft(): Aircraft[] {
+  return EXPO_SCRIPT.map((script, index) => {
+    const pos = startPos(script.angle, script.dist);
+    return {
+      id: `ac-expo-${index}-${script.callsign}`,
+      callsign: script.callsign,
+      type: script.type,
+      x: pos.x,
+      y: pos.y,
+      heading: script.heading,
+      targetHeading: script.heading,
+      altitude: script.altitude,
+      targetAltitude: script.altitude,
+      speed: script.speed,
+      targetSpeed: script.speed,
+      history: [],
+      status: 'INBOUND',
+      cleared: false,
+      alertLevel: AlertLevel.NONE,
+      messages: [],
+      isSelected: false,
+      destination: script.destination,
+      dataBlockDir: 45,
+    };
+  });
+}
+
 /**
  * Built-in traffic for the free web demo. No API key and no network.
- * Counts follow the menu: trainee 4, controller 8, veteran 12.
+ * Pass the same seed (number or label) to replay the same spawn pattern.
+ * Expo layout stays fixed for booth demos; the seed is still recorded for URL sharing.
  */
-export function buildLocalScenario(difficulty: string): GameScenario {
-  const count = aircraftCount(difficulty);
+export function buildLocalScenario(difficulty: string, seedLabel?: string | number): GameScenario {
+  const level = normalizeDifficulty(difficulty);
+  const seed = resolveSeedInput(seedLabel, level);
+  const random = createSeededRandom(seed.numeric);
+
+  if (level === 'Expo') {
+    return {
+      name: 'Expo Hot Seat',
+      difficulty: 'Expo',
+      description: 'Three aircraft. Clear them through their glowing gates. About ninety seconds.',
+      aircraft: buildExpoAircraft(),
+      seedLabel: seed.display,
+      mode: 'expo',
+    };
+  }
+
+  const count = aircraftCount(level);
   const aircraft: Aircraft[] = [];
 
   for (let index = 0; index < count; index++) {
@@ -66,8 +137,8 @@ export function buildLocalScenario(difficulty: string): GameScenario {
     let heading = 0;
     let placed = false;
     for (let attempt = 0; attempt < 20 && !placed; attempt++) {
-      const angle = Math.floor(Math.random() * (zone.max - zone.min + 1)) + zone.min;
-      const dist = Math.floor(Math.random() * (maxDist - minDist + 1)) + minDist;
+      const angle = Math.floor(random() * (zone.max - zone.min + 1)) + zone.min;
+      const dist = Math.floor(random() * (maxDist - minDist + 1)) + minDist;
       const candidate = startPos(angle, dist);
       const crowded = aircraft.some((existing) => {
         const d = Math.hypot(existing.x - candidate.x, existing.y - candidate.y);
@@ -75,7 +146,7 @@ export function buildLocalScenario(difficulty: string): GameScenario {
       });
       if (!crowded) {
         pos = candidate;
-        heading = (angle + 180 + (Math.random() * 30 - 15) + 360) % 360;
+        heading = (angle + 180 + (random() * 30 - 15) + 360) % 360;
         placed = true;
       }
     }
@@ -112,11 +183,12 @@ export function buildLocalScenario(difficulty: string): GameScenario {
     });
   }
 
-  const level = difficulty === 'Easy' || difficulty === 'Hard' ? difficulty : 'Medium';
   return {
-    name: 'Classroom Demo',
+    name: level === 'Easy' ? 'Trainee Sector' : level === 'Hard' ? 'Veteran Sector' : 'Controller Sector',
     difficulty: level,
-    description: 'Built-in scenario. No network connection required.',
+    description: `Seeded offline scenario (${seed.display}).`,
     aircraft,
+    seedLabel: seed.display,
+    mode: 'standard',
   };
 }

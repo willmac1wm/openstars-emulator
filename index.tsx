@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initAnalytics } from './services/analytics';
+import './index.css';
 
-// Start Analytics
 initAnalytics();
 
 const rootElement = document.getElementById('root');

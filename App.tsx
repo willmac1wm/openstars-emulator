@@ -6,11 +6,13 @@ import MainMenu from './components/MainMenu';
 import SummaryScreen from './components/SummaryScreen';
 import FlightStripBay from './components/FlightStripBay';
 import ReferencePanel from './components/ReferencePanel';
-import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource } from './types';
+import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource, StartOptions } from './types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { applyCommandPatch, parseCommand } from './services/commandParser';
 import { primePilotVoice, speakPilot } from './services/pilotVoice';
+import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
+import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
   SIM_SPEED_OPTIONS, GATES, NM_3_PX, NM_4_PX,
@@ -52,6 +54,9 @@ const App: React.FC = () => {
   // UI States for Overlays
   const [isRateOpen, setIsRateOpen] = useState(false);
   const [isDataOpen, setIsDataOpen] = useState(true);
+  const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
+  const [scoreFlash, setScoreFlash] = useState<string | null>(null);
+  const [scenarioSeed, setScenarioSeed] = useState<string | null>(() => readSeedFromLocation());
 
   const requestRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
@@ -111,30 +116,46 @@ const App: React.FC = () => {
     setAircraft(prev => prev.map(ac => ac.id === selectedId ? { ...ac, dataBlockDir: direction } : ac));
   };
 
-  const startGame = async (difficulty: string, email?: string) => {
-    
-    // 1. Identify User
-    if (email) {
-        identifyUser(email);
-    } else {
-        identifyUser('guest-' + Math.floor(Math.random() * 1000000));
-    }
+  const startGame = async (options: StartOptions | string) => {
+    const difficulty = typeof options === 'string' ? options : options.difficulty;
+    const requestedSeed = typeof options === 'string'
+      ? readSeedFromLocation()
+      : (options.seedLabel ?? readSeedFromLocation());
+    const seed = resolveSeedInput(
+      requestedSeed ?? DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS],
+      difficulty,
+    );
+    const expo = difficulty === 'Expo';
 
-    // 2. Start Game Logic
+    identifyUser('guest-' + Math.floor(Math.random() * 1000000));
+    setPlayMode(expo ? 'expo' : 'standard');
+    setScoreFlash(null);
+    setScenarioSeed(seed.display);
+    writeSeedToUrl(seed.display);
     setGameState(SimulationState.LOADING);
-    setStatusMessage('INITIALIZING RADAR SCENARIO...');
-    
-    trackEvent('Game Started', { difficulty, mode: email ? 'Identified' : 'Guest' });
+    setStatusMessage(expo ? 'OPENING EXPO SCOPE...' : 'INITIALIZING RADAR SCENARIO...');
+    setTimeScale(expo ? 4 : DEFAULT_TIME_SCALE);
+
+    trackEvent('Game Started', { difficulty, mode: expo ? 'Expo' : 'Guest', seed: seed.display });
 
     try {
-      const scenario = await generateScenario(difficulty);
-      setAircraft(scenario.aircraft.map(ac => ({
+      const scenario = await generateScenario(difficulty, seed.display);
+      const firstId = scenario.aircraft[0]?.id ?? null;
+      setAircraft(scenario.aircraft.map((ac, index) => ({
         ...ac,
-        alertLevel: AlertLevel.NONE
+        alertLevel: AlertLevel.NONE,
+        isSelected: index === 0,
       })));
+      setSelectedId(firstId);
       setGameState(SimulationState.RUNNING);
       setStatusMessage(`RADAR CONTACT: ${scenario.name}`);
-      addLog(`GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
+      addLog(expo
+        ? `EXPO HOT SEAT. ${scenario.aircraft.length} AIRCRAFT. CLEAR THEM THROUGH THEIR GATES.`
+        : `GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
+      if (scenario.seedLabel) {
+        setScenarioSeed(scenario.seedLabel);
+        addLog(`SCENARIO SEED ${scenario.seedLabel}`);
+      }
       lastTimeRef.current = 0;
       setScore(0);
       setStats({...INITIAL_STATS, startTime: Date.now()});
@@ -163,6 +184,9 @@ const App: React.FC = () => {
     setMessages([{ id: 1, text: INITIAL_INSTRUCTION, source: 'system' }]);
     setScore(0);
     setSelectedId(null);
+    setPlayMode('standard');
+    setScoreFlash(null);
+    setTimeScale(DEFAULT_TIME_SCALE);
   };
 
   const endGame = useCallback(() => {
@@ -287,11 +311,13 @@ const App: React.FC = () => {
                         setStats(s => ({...s, perfectExits: s.perfectExits + 1}));
                         addLog(`${ac.callsign} CLEAN EXIT ${enteredGate.label}. +${SCORE_PERFECT_EXIT}`);
                         handoffResult = "CLEAN EXIT";
+                        setScoreFlash(`${ac.callsign} CLEAN +${SCORE_PERFECT_EXIT}`);
                     } else {
                         pts += SCORE_SLOPPY_EXIT;
                         setStats(s => ({...s, sloppyExits: s.sloppyExits + 1}));
                         addLog(`${ac.callsign} EXIT ${enteredGate.label} (TOUCHED SIDES). +${SCORE_SLOPPY_EXIT}`);
                         handoffResult = "SLOPPY EXIT";
+                        setScoreFlash(`${ac.callsign} EXIT +${SCORE_SLOPPY_EXIT}`);
                     }
 
                     if (!hasValidAlt) {
@@ -409,6 +435,12 @@ const App: React.FC = () => {
     return () => window.removeEventListener('pointerdown', unlock);
   }, []);
 
+  useEffect(() => {
+    if (!scoreFlash) return;
+    const timer = setTimeout(() => setScoreFlash(null), 2200);
+    return () => clearTimeout(timer);
+  }, [scoreFlash]);
+
   const handleSelect = (id: string) => {
     setSelectedId(id);
     setAircraft(prev => prev.map(ac => ({ ...ac, isSelected: ac.id === id })));
@@ -419,7 +451,9 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white overflow-hidden touch-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] relative" onContextMenu={(e) => e.preventDefault()}>
       
-      {gameState === SimulationState.MENU && <MainMenu onStart={startGame} highScore={highScore} />}
+      {gameState === SimulationState.MENU && (
+        <MainMenu onStart={startGame} highScore={highScore} activeSeed={scenarioSeed} />
+      )}
       {gameState === SimulationState.SUMMARY && <SummaryScreen score={score} stats={stats} onReset={returnToMenu} />}
 
       {/* PRO DASHBOARD LAYOUT */}
@@ -433,7 +467,36 @@ const App: React.FC = () => {
           {/* CENTER: Radar Scope */}
           <div className="flex-1 relative overflow-hidden flex items-center justify-center">
             <div className="relative h-full aspect-square max-w-full shadow-2xl bg-black border-2 border-gray-700 rounded-sm box-border">
-                <RadarScope aircraft={aircraft} onSelectAircraft={handleSelect} scanAngle={scanAngle} showPrimaryData={showPrimaryData}/>
+                <RadarScope
+                  aircraft={aircraft}
+                  onSelectAircraft={handleSelect}
+                  scanAngle={scanAngle}
+                  showPrimaryData={showPrimaryData}
+                  highlightGateId={selectedAircraft?.destination ?? null}
+                />
+
+                {(gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) && scenarioSeed && (
+                  <div
+                    data-testid="active-seed"
+                    className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-black/80 border border-gray-700 text-green-300 text-[10px] md:text-xs px-3 py-1 rounded font-mono tracking-wider"
+                  >
+                    SEED {scenarioSeed}
+                  </div>
+                )}
+
+                {playMode === 'expo' && gameState === SimulationState.RUNNING && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-black/80 border border-green-700 text-green-300 text-[11px] md:text-xs px-3 py-2 rounded shadow-lg text-center">
+                    Select a plane. Tap a command chip or type. Aim for the pulsing gate.
+                  </div>
+                )}
+
+                {scoreFlash && (
+                  <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center">
+                    <div className="text-3xl md:text-5xl font-bold text-green-400 drop-shadow-[0_0_20px_rgba(20,241,149,0.8)] animate-in zoom-in">
+                      {scoreFlash}
+                    </div>
+                  </div>
+                )}
                 
                 {/* Overlays (Visible when sidebar is hidden) */}
                 <div className="lg:hidden absolute top-2 left-2 z-30">
@@ -484,11 +547,12 @@ const App: React.FC = () => {
         score={score}
         gameActive={gameState === SimulationState.RUNNING}
         gameState={gameState}
-        onStart={() => startGame("Medium")} 
+        onStart={() => startGame({ difficulty: 'Expo' })} 
         onPause={togglePause}
         onReset={returnToMenu}
         statusMessage={statusMessage}
         onMoveLabel={handleMoveDataBlock}
+        expoMode={playMode === 'expo'}
       />
     </div>
   );

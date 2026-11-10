@@ -1,231 +1,157 @@
-import React, { useState } from 'react';
-import { Play, Trophy, Info, ChevronRight, BookOpen, Target, Command, Map, Mail, User } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, Trophy, ChevronRight, Sparkles } from 'lucide-react';
+import { ScenarioDifficulty, StartOptions } from '../types';
+import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
 
 interface MainMenuProps {
-  onStart: (difficulty: string, email?: string) => void;
+  onStart: (options: StartOptions | string) => void;
   highScore: number;
+  activeSeed?: string | null;
 }
 
-const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore }) => {
-  const [step, setStep] = useState<'LOGIN' | 'DIFFICULTY'>('LOGIN');
-  const [email, setEmail] = useState('');
-  const [difficulty, setDifficulty] = useState('Medium');
-  const [showRules, setShowRules] = useState(false);
+const MODES: Array<{
+  id: ScenarioDifficulty;
+  label: string;
+  desc: string;
+  badge?: string;
+}> = [
+  { id: 'Expo', label: 'EXPO HOT SEAT', desc: '90 seconds · 3 planes · big chips · walk-up', badge: 'BOOTHS' },
+  { id: 'Easy', label: 'TRAINEE', desc: '4 aircraft · classroom starter' },
+  { id: 'Medium', label: 'CONTROLLER', desc: '8 aircraft · standard lesson' },
+  { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
+];
 
-  const difficulties = [
-    { id: 'Easy', label: 'TRAINEE', desc: 'Low Traffic (3-4 Aircraft)' },
-    { id: 'Medium', label: 'CONTROLLER', desc: 'Standard (8-12 Aircraft)' },
-    { id: 'Hard', label: 'VETERAN', desc: 'Heavy Traffic (12-15 Aircraft)' },
-  ];
+const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = null }) => {
+  const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
+  const urlSeed = readSeedFromLocation();
+  const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
 
-  const handleLogin = (isGuest: boolean) => {
-      if (isGuest) {
-          setStep('DIFFICULTY');
-      } else {
-          if (email.includes('@')) {
-              setStep('DIFFICULTY');
-          } else {
-              alert("Please enter a valid email or play as guest.");
-          }
-      }
+  useEffect(() => {
+    if (urlSeed) setSeedInput(urlSeed);
+  }, [urlSeed]);
+
+  const handleStart = (level: ScenarioDifficulty = difficulty) => {
+    const resolved = resolveSeedInput(seedInput || DEFAULT_SCENARIO_SEEDS[level], level);
+    onStart({ difficulty: level, seedLabel: resolved.display });
   };
-
-  const handleStartGame = () => {
-      onStart(difficulty, email || undefined);
-  };
-
-  if (showRules) {
-      return (
-        <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center text-green-500 font-mono p-4 select-none">
-            <div className="bg-gray-900 border border-green-500 rounded max-w-3xl w-full max-h-[90vh] flex flex-col shadow-[0_0_50px_rgba(20,241,149,0.2)] overflow-hidden">
-                <div className="bg-gray-900 p-6 border-b border-green-900 shrink-0">
-                    <h2 className="text-2xl font-bold flex items-center gap-2 text-green-500">
-                        <BookOpen /> OPERATING PROCEDURES
-                    </h2>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6 space-y-8 text-gray-300 text-sm">
-                    <section className="space-y-2">
-                        <h3 className="text-green-400 font-bold text-lg flex items-center gap-2">
-                            <Map size={18}/> 1. THE MISSION
-                        </h3>
-                        <p>
-                            You are an Air Traffic Controller. Aircraft are entering your sector from all sides. 
-                            Your job is to guide them safely to their assigned <strong className="text-white">EXIT GATE</strong>.
-                        </p>
-                    </section>
-                    <section className="space-y-2">
-                        <h3 className="text-green-400 font-bold text-lg flex items-center gap-2">
-                            <Target size={18}/> 2. READING THE SCOPE
-                        </h3>
-                        <p>Look at the Data Block (text) attached to each aircraft. The 3-letter code tells you where it needs to go.</p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-                            <div className="bg-black border border-gray-700 p-2 rounded text-center">
-                                <div className="text-white font-bold">NOR</div>
-                                <div className="text-xs text-gray-500">NORTH GATE</div>
-                            </div>
-                            <div className="bg-black border border-gray-700 p-2 rounded text-center">
-                                <div className="text-white font-bold">SOU</div>
-                                <div className="text-xs text-gray-500">SOUTH GATE</div>
-                            </div>
-                            <div className="bg-black border border-gray-700 p-2 rounded text-center">
-                                <div className="text-white font-bold">EAS</div>
-                                <div className="text-xs text-gray-500">EAST GATE</div>
-                            </div>
-                            <div className="bg-black border border-gray-700 p-2 rounded text-center">
-                                <div className="text-white font-bold">WES</div>
-                                <div className="text-xs text-gray-500">WEST GATE</div>
-                            </div>
-                        </div>
-                    </section>
-                    <section className="space-y-2">
-                        <h3 className="text-green-400 font-bold text-lg flex items-center gap-2">
-                            <Command size={18}/> 3. PILOT READBACKS
-                        </h3>
-                        <p>
-                            Type a clearance such as <span className="text-white">AAL421 H270 A100</span>. The addressed
-                            aircraft reads it back on the speaker and in the comm log. Turn voices on or off with
-                            <span className="text-white"> VOX</span>. The first transmission downloads a free in-browser voice;
-                            after that it works offline.
-                        </p>
-                    </section>
-                    <section className="space-y-2">
-                        <h3 className="text-green-400 font-bold text-lg">4. CRITICAL RULES</h3>
-                        <div className="border border-red-900/50 bg-red-900/10 p-3 rounded">
-                            <strong className="text-red-400">SEPARATION:</strong> Keep aircraft 3 miles apart (laterally) and 1000ft apart (vertically).
-                        </div>
-                        <ul className="text-xs space-y-1 mt-2">
-                            <li className="flex justify-between border-b border-gray-800 pb-1">
-                                <span>Exiting <span className="text-green-300">NORTH / EAST</span></span>
-                                <span className="font-bold text-white">FL 070, 090</span>
-                            </li>
-                            <li className="flex justify-between pt-1">
-                                <span>Exiting <span className="text-green-300">SOUTH / WEST</span></span>
-                                <span className="font-bold text-white">FL 060, 080</span>
-                            </li>
-                        </ul>
-                    </section>
-                </div>
-                <div className="bg-gray-900 p-4 border-t border-gray-800 shrink-0">
-                    <button 
-                        onClick={() => setShowRules(false)}
-                        className="w-full bg-green-700 hover:bg-green-600 text-white py-3 rounded font-bold uppercase tracking-widest shadow-lg transition-all"
-                    >
-                        I Understand - Close
-                    </button>
-                </div>
-            </div>
-        </div>
-      );
-  }
 
   return (
-    <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center text-green-500 font-mono p-4 select-none">
-        <div className="w-full max-w-md space-y-8 animate-in fade-in zoom-in duration-500">
-            
-            {/* Title Block */}
-            <div className="text-center space-y-2">
-                <h1 className="text-6xl font-bold tracking-tighter text-white drop-shadow-[0_0_10px_rgba(20,241,149,0.8)]">
-                    OPEN<span className="text-green-500">STARS</span>
-                </h1>
-                <div className="text-gray-400 tracking-widest text-sm">RADAR TERMINAL EMULATOR</div>
-                <div className="text-gray-600 text-[10px] tracking-wide">Classroom demo. No account and no API key.</div>
+    <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center text-green-500 font-mono p-3 md:p-6 select-none overflow-y-auto">
+      <div className="w-full max-w-5xl grid gap-4 lg:grid-cols-[1.1fr_0.9fr] items-start">
+        <div className="space-y-4">
+          <div className="text-center lg:text-left space-y-2">
+            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-white drop-shadow-[0_0_10px_rgba(20,241,149,0.8)]">
+              OPEN<span className="text-green-500">STARS</span>
+            </h1>
+            <div className="text-gray-400 tracking-widest text-sm md:text-base">ATC RADAR GAME</div>
+            <div className="text-gray-500 text-xs md:text-sm">
+              Classrooms · STEM expos · no account · no API key
             </div>
+          </div>
 
-            {step === 'LOGIN' ? (
-                <div className="bg-gray-900 p-6 rounded border border-gray-800 space-y-4 shadow-xl">
-                    <div className="text-center space-y-2">
-                        <div className="text-white font-bold text-lg">Controller Identification</div>
-                        <p className="text-xs text-gray-500">Enter email to track your career stats and receive updates.</p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                        <div className="relative">
-                            <Mail className="absolute left-3 top-3 text-gray-500" size={16} />
-                            <input 
-                                type="email" 
-                                placeholder="name@example.com" 
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                className="w-full bg-black border border-gray-700 rounded py-2 pl-10 pr-4 text-white focus:border-green-500 focus:outline-none"
-                            />
-                        </div>
-                        <button 
-                            onClick={() => handleLogin(false)}
-                            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded transition-all"
-                        >
-                            CONTINUE
-                        </button>
-                    </div>
+          <button
+            data-testid="expo-start"
+            onClick={() => handleStart('Expo')}
+            className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-2xl md:text-3xl py-6 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center gap-1"
+          >
+            <span className="flex items-center gap-3"><Play fill="black" size={28} /> TRY THE SCOPE</span>
+            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">Expo hot seat · projector friendly</span>
+          </button>
 
-                    <div className="relative flex py-2 items-center">
-                        <div className="flex-grow border-t border-gray-800"></div>
-                        <span className="flex-shrink mx-4 text-gray-600 text-xs">OR</span>
-                        <div className="flex-grow border-t border-gray-800"></div>
-                    </div>
+          <div className="flex flex-wrap gap-3 items-center justify-between bg-gray-950 border border-gray-800 rounded p-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Trophy size={16} className="text-yellow-500" />
+              <span className="text-gray-400">BEST</span>
+              <span className="text-white font-bold text-lg">{highScore}</span>
+            </div>
+            <label className="flex items-center gap-2 text-xs md:text-sm text-gray-400">
+              <span className="uppercase tracking-wider">Seed</span>
+              <input
+                data-testid="seed-input"
+                value={seedInput}
+                onChange={(event) => setSeedInput(event.target.value)}
+                className="w-36 md:w-44 bg-black border border-gray-700 rounded px-2 py-2 text-green-300 font-mono text-sm focus:border-green-500 focus:outline-none"
+                placeholder="1234"
+                aria-label="Scenario seed"
+              />
+            </label>
+          </div>
 
-                    <button 
-                        onClick={() => handleLogin(true)}
-                        className="w-full bg-transparent hover:bg-gray-800 text-gray-400 py-2 rounded border border-gray-700 text-sm flex items-center justify-center gap-2"
-                    >
-                        <User size={14} /> PLAY AS GUEST
-                    </button>
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500 uppercase tracking-wider ml-1">Pick a session</div>
+            {MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                data-testid={`mode-${mode.id}`}
+                onClick={() => {
+                  setDifficulty(mode.id);
+                  if (!urlSeed && (!seedInput || Object.values(DEFAULT_SCENARIO_SEEDS).includes(seedInput))) {
+                    setSeedInput(DEFAULT_SCENARIO_SEEDS[mode.id]);
+                  }
+                }}
+                className={`w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left ${
+                  difficulty === mode.id
+                    ? 'bg-green-900/30 border-green-500 text-white shadow-[0_0_15px_rgba(20,241,149,0.1)]'
+                    : 'bg-black border-gray-800 text-gray-500 hover:border-gray-600'
+                }`}
+              >
+                <div>
+                  <div className={`font-bold text-lg md:text-xl flex items-center gap-2 ${difficulty === mode.id ? 'text-green-400' : 'text-gray-400'}`}>
+                    {mode.label}
+                    {mode.badge && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-600 text-amber-300">{mode.badge}</span>
+                    )}
+                  </div>
+                  <div className="text-xs md:text-sm opacity-70">{mode.desc}</div>
                 </div>
-            ) : (
-                <>
-                    {/* Stats */}
-                    <div className="flex justify-center gap-4 text-sm">
-                        <div className="bg-gray-900 px-4 py-2 rounded border border-gray-800 flex items-center gap-2">
-                            <Trophy size={14} className="text-yellow-500"/>
-                            <span className="text-gray-400">BEST SCORE:</span>
-                            <span className="text-white font-bold">{highScore}</span>
-                        </div>
-                    </div>
+                {difficulty === mode.id && <ChevronRight className="text-green-500" />}
+              </button>
+            ))}
+          </div>
 
-                    {/* Difficulty Selector */}
-                    <div className="space-y-2">
-                        <div className="text-xs text-gray-500 uppercase tracking-wider mb-1 ml-1">Select Difficulty</div>
-                        {difficulties.map(d => (
-                            <button
-                                key={d.id}
-                                onClick={() => setDifficulty(d.id)}
-                                className={`w-full flex items-center justify-between p-4 rounded border transition-all ${
-                                    difficulty === d.id 
-                                    ? 'bg-green-900/30 border-green-500 text-white shadow-[0_0_15px_rgba(20,241,149,0.1)]' 
-                                    : 'bg-black border-gray-800 text-gray-500 hover:border-gray-600'
-                                }`}
-                            >
-                                <div className="text-left">
-                                    <div className={`font-bold ${difficulty === d.id ? 'text-green-400' : 'text-gray-400'}`}>{d.label}</div>
-                                    <div className="text-xs opacity-70">{d.desc}</div>
-                                </div>
-                                {difficulty === d.id && <ChevronRight className="text-green-500"/>}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="space-y-3">
-                        <button 
-                            onClick={handleStartGame}
-                            className="w-full bg-green-600 hover:bg-green-500 text-black font-bold text-xl py-4 rounded shadow-[0_0_20px_rgba(20,241,149,0.4)] hover:shadow-[0_0_30px_rgba(20,241,149,0.6)] transition-all flex items-center justify-center gap-2"
-                        >
-                            <Play fill="black" /> INITIALIZE RADAR
-                        </button>
-                        
-                        <button 
-                            onClick={() => setShowRules(true)}
-                            className="w-full bg-transparent hover:bg-gray-900 text-gray-400 hover:text-white py-3 rounded border border-gray-800 transition-all flex items-center justify-center gap-2 text-sm"
-                        >
-                            <Info size={16} /> HOW TO PLAY
-                        </button>
-                    </div>
-                </>
-            )}
-
-            <div className="text-center text-[10px] text-gray-700">
-                v2.1.0 • OpenSTARS
-            </div>
+          <button
+            type="button"
+            data-testid="start-selected"
+            onClick={() => handleStart()}
+            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold text-xl py-4 rounded transition-all flex items-center justify-center gap-2"
+          >
+            <Play size={18} /> START {difficulty.toUpperCase()}
+          </button>
         </div>
+
+        <aside className="bg-gray-950 border border-gray-800 rounded p-4 md:p-5 space-y-4 text-gray-300">
+          <div className="flex items-center gap-2 text-green-400 font-bold text-lg">
+            <Sparkles size={18} /> HOW TO PLAY
+          </div>
+          <ol className="space-y-3 text-sm md:text-base leading-relaxed list-decimal list-inside">
+            <li>Select an aircraft on the scope.</li>
+            <li>Turn and climb or descend it toward its exit gate.</li>
+            <li>Keep planes 3 miles / 1,000 ft apart.</li>
+            <li>Hit the gate at a legal altitude to score.</li>
+          </ol>
+
+          <div>
+            <div className="text-green-400 font-bold text-sm uppercase tracking-wider mb-2">Command examples</div>
+            <div className="space-y-2 font-mono text-xs md:text-sm bg-black/60 border border-gray-800 rounded p-3">
+              <div><span className="text-cyan-400">AAL421 TL270</span> <span className="text-gray-500">turn left heading 270</span></div>
+              <div><span className="text-cyan-400">UAL123 A060</span> <span className="text-gray-500">descend/climb to 6,000</span></div>
+              <div><span className="text-cyan-400">DAL456 A100</span> <span className="text-gray-500">10,000 ft</span></div>
+              <div><span className="text-cyan-400">SWA890 S210</span> <span className="text-gray-500">speed 210</span></div>
+              <div><span className="text-cyan-400">AAL404 TL270 A060 S210</span> <span className="text-gray-500">combo</span></div>
+            </div>
+          </div>
+
+          <div className="text-xs md:text-sm text-gray-500 space-y-1">
+            <div>N/E exits: <span className="text-white">A070 or A090</span></div>
+            <div>S/W exits: <span className="text-white">A060 or A080</span></div>
+            <div>
+              Replay a period with the same traffic:
+              {' '}<span className="text-green-300">?seed=1234</span>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 };

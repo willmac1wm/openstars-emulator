@@ -4,6 +4,7 @@ import { Aircraft, CommMessage, SimulationState } from '../types';
 import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keyboard as KeyboardIcon } from 'lucide-react';
 import SoftKeyboard from './SoftKeyboard';
 import VoiceBar from './VoiceBar';
+import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
 
 interface ControlPanelProps {
   selectedAircraft: Aircraft | null;
@@ -17,6 +18,17 @@ interface ControlPanelProps {
   onReset: () => void;
   statusMessage: string;
   onMoveLabel?: (dir: number) => void;
+  expoMode?: boolean;
+}
+
+function padHeading(heading: number): string {
+  const wrapped = ((Math.round(heading) % 360) + 360) % 360;
+  return String(wrapped === 0 ? 360 : wrapped).padStart(3, '0');
+}
+
+function legalAltitude(destination: string, current: number): number {
+  const options = destination === 'NOR' || destination === 'EAS' ? ALTS_NORTH_EAST : ALTS_SOUTH_WEST;
+  return options.reduce((best, alt) => Math.abs(alt - current) < Math.abs(best - current) ? alt : best, options[0]);
 }
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -30,7 +42,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onPause,
   onReset,
   statusMessage,
-  onMoveLabel
+  onMoveLabel,
+  expoMode = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [copied, setCopied] = useState(false);
@@ -45,11 +58,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Detect mobile on mount
+  // Detect mobile on mount; expo booths keep soft chips even on wide screens.
   useEffect(() => {
     const isMobile = window.innerWidth < 1024;
-    setShowSoftKeyboard(isMobile);
-  }, []);
+    setShowSoftKeyboard(isMobile || expoMode);
+  }, [expoMode]);
 
   // Auto-focus logic
   useEffect(() => {
@@ -167,7 +180,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {/* 3. INPUT BAR (Middle) */}
-      <form onSubmit={handleSubmit} className="p-2 bg-gray-900 border-b border-gray-800 shrink-0">
+      <form onSubmit={handleSubmit} className="p-2 bg-gray-900 border-b border-gray-800 shrink-0 space-y-2">
         <div className="flex gap-1">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
@@ -194,6 +207,45 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <KeyboardIcon size={18} />
           </button>
         </div>
+
+        {expoMode && isRunning && (
+          <div className="grid grid-cols-2 gap-1" data-testid="expo-chips">
+            {[
+              {
+                label: 'TURN LEFT',
+                command: selectedAircraft
+                  ? `${selectedAircraft.callsign} TL${padHeading(selectedAircraft.heading - 45)}`
+                  : null,
+              },
+              {
+                label: 'TURN RIGHT',
+                command: selectedAircraft
+                  ? `${selectedAircraft.callsign} TR${padHeading(selectedAircraft.heading + 45)}`
+                  : null,
+              },
+              {
+                label: 'SET EXIT ALT',
+                command: selectedAircraft
+                  ? `${selectedAircraft.callsign} A${String(legalAltitude(selectedAircraft.destination, selectedAircraft.altitude)).padStart(3, '0')}`
+                  : null,
+              },
+              {
+                label: 'SPEED 210',
+                command: selectedAircraft ? `${selectedAircraft.callsign} S210` : null,
+              },
+            ].map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                disabled={!chip.command}
+                onClick={() => chip.command && onCommand(chip.command)}
+                className="bg-amber-900/40 hover:bg-amber-800/60 disabled:opacity-40 text-amber-100 border border-amber-700/60 rounded py-2 text-[11px] font-bold tracking-wide"
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        )}
       </form>
 
       {/* 4. BOTTOM SPLIT SECTION (Mobile Portrait) vs STACK (Desktop) */}
