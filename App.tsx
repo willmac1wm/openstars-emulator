@@ -9,7 +9,12 @@ import ReferencePanel from './components/ReferencePanel';
 import AttractMode from './components/AttractMode';
 import ArcadeSummary from './components/ArcadeSummary';
 import ExpoArcadeHUD from './components/ExpoArcadeHUD';
+import VtfSetup from './components/vtf/VtfSetup';
+import ApproachScope from './components/vtf/ApproachScope';
+import VtfPanel from './components/vtf/VtfPanel';
 import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource, StartOptions } from './types';
+import { useSimEngine } from './hooks/useSimEngine';
+import type { ApproachKind, WindState } from './sim/types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { applyCommandPatch, parseCommand } from './services/commandParser';
@@ -79,6 +84,10 @@ const App: React.FC = () => {
   const [liveTranscript, setLiveTranscript] = useState('');
   const [showArcadeSummary, setShowArcadeSummary] = useState(false);
   const [conflictAlarm, setConflictAlarm] = useState(false);
+  const [showVtfSetup, setShowVtfSetup] = useState(false);
+  const [vtfActive, setVtfActive] = useState(false);
+  const [vtfTranscript, setVtfTranscript] = useState('');
+  const { state: vtfState, dispatch: vtfDispatch } = useSimEngine(vtfActive);
 
   const requestRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
@@ -682,11 +691,117 @@ const App: React.FC = () => {
     returnToMenu({ attract: true });
   };
 
+  const startVtf = (opts: { seedLabel: string; approachKind: ApproachKind; wind: WindState }) => {
+    setShowVtfSetup(false);
+    setShowAttract(false);
+    setVtfActive(true);
+    setVtfTranscript('');
+    setGameState(SimulationState.RUNNING);
+    writeSeedToUrl(opts.seedLabel);
+    setScenarioSeed(opts.seedLabel);
+    vtfDispatch({
+      type: 'START',
+      mode: 'vector_to_final',
+      seedLabel: opts.seedLabel,
+      approachKind: opts.approachKind,
+      wind: opts.wind,
+    });
+    trackEvent('VTF Started', { seed: opts.seedLabel, kind: opts.approachKind });
+  };
+
+  const exitVtf = () => {
+    setVtfActive(false);
+    setShowVtfSetup(false);
+    returnToMenu();
+  };
+
+  const handleVtfCommand = (cmd: string) => {
+    primePilotVoice();
+    const before = vtfState.events.length;
+    vtfDispatch({ type: 'COMMAND', raw: cmd });
+    // Speak latest pilot line after dispatch on next tick via effect below
+    void before;
+  };
+
+  useEffect(() => {
+    if (!vtfActive) return;
+    const pilots = vtfState.events.filter((e) => e.kind === 'pilot');
+    const last = pilots[pilots.length - 1];
+    if (last && last.detail) speakPilot(last.detail, last.callsign || 'PILOT');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- speak only when new pilot events arrive
+  }, [vtfActive, vtfState.events.length]);
+
+  const handleVtfSpoken = useCallback((text: string, isFinal: boolean) => {
+    setVtfTranscript(text);
+    if (!isFinal || !text.trim()) return;
+    const legacy = vtfState.aircraft.map((ac) => ({
+      id: ac.id,
+      callsign: ac.callsign,
+      type: ac.type,
+      x: ac.x,
+      y: ac.y,
+      altitude: ac.altitude,
+      targetAltitude: ac.targetAltitude,
+      speed: ac.ias,
+      targetSpeed: ac.targetIas,
+      heading: ac.heading,
+      targetHeading: ac.targetHeading,
+      history: ac.history,
+      status: 'ACTIVE' as const,
+      alertLevel: ac.alertLevel,
+      cleared: ac.approachCleared,
+      messages: [] as string[],
+      isSelected: ac.isSelected,
+      destination: 'SOU',
+      dataBlockDir: 45,
+    }));
+    const spoken = parseSpokenClearance(text, legacy);
+    if (!spoken.ok || !spoken.command) {
+      speakPilot(spoken.message || 'Say again', spoken.callsign || 'PILOT');
+      return;
+    }
+    vtfDispatch({ type: 'COMMAND', raw: spoken.command });
+  }, [vtfState.aircraft, vtfDispatch]);
+
   return (
     <div className="flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white overflow-hidden touch-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] relative" onContextMenu={(e) => e.preventDefault()}>
       
-      {gameState === SimulationState.MENU && !showAttract && (
-        <MainMenu onStart={startGame} highScore={highScore} activeSeed={scenarioSeed} />
+      {gameState === SimulationState.MENU && !showAttract && !showVtfSetup && (
+        <MainMenu
+          onStart={startGame}
+          onOpenVtf={() => setShowVtfSetup(true)}
+          highScore={highScore}
+          activeSeed={scenarioSeed}
+        />
+      )}
+      {showVtfSetup && (
+        <VtfSetup
+          defaultSeed={scenarioSeed || 'vtf-1'}
+          onCancel={() => setShowVtfSetup(false)}
+          onStart={startVtf}
+        />
+      )}
+      {vtfActive && vtfState.approach && (
+        <div className="absolute inset-0 z-[55] flex flex-col landscape:flex-row bg-black" data-testid="vtf-game">
+          <div className="flex-1 min-h-0 relative">
+            <ApproachScope
+              aircraft={vtfState.aircraft}
+              approach={vtfState.approach}
+              wind={vtfState.wind}
+              selectedId={vtfState.selectedId}
+              onSelect={(id) => vtfDispatch({ type: 'SELECT', aircraftId: id })}
+            />
+          </div>
+          <VtfPanel
+            state={vtfState}
+            selected={vtfState.aircraft.find((a) => a.id === vtfState.selectedId) || null}
+            liveTranscript={vtfTranscript}
+            onCommand={handleVtfCommand}
+            onTranscript={handleVtfSpoken}
+            onSpeechError={(m) => addLog(m, 'system')}
+            onExit={exitVtf}
+          />
+        </div>
       )}
       {showAttract && gameState === SimulationState.MENU && (
         <AttractMode onStart={() => startArcadeRound()} />

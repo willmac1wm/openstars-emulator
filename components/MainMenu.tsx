@@ -5,6 +5,7 @@ import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
+  onOpenVtf?: () => void;
   highScore: number;
   activeSeed?: string | null;
 }
@@ -21,7 +22,7 @@ const MODES: Array<{
   { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
 ];
 
-const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = null }) => {
+const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, activeSeed = null }) => {
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
@@ -118,6 +119,17 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = nu
           >
             <Play size={18} /> START {difficulty.toUpperCase()}
           </button>
+
+          {onOpenVtf && (
+            <button
+              type="button"
+              data-testid="vtf-menu"
+              onClick={onOpenVtf}
+              className="w-full bg-cyan-900/40 hover:bg-cyan-800/50 border border-cyan-600 text-cyan-100 font-bold text-lg py-4 rounded transition-all"
+            >
+              VECTOR TO FINAL · ILS / VOR
+            </button>
+          )}
         </div>
 
         <aside className="bg-gray-950 border border-gray-800 rounded p-4 md:p-5 space-y-4 text-gray-300">

@@ -1,5 +1,5 @@
 import { Aircraft } from '../types';
-import { AIRLINE_TELEPHONY, speakAltitudeHundreds, speakCallsign, speakHeading, speakKnots } from './phraseology';
+import { AIRLINE_TELEPHONY, speakAltitudeHundreds, speakCallsign, speakDigits, speakHeading, speakKnots } from './phraseology';
 
 const WORD_DIGITS: Record<string, string> = {
   zero: '0', oh: '0', o: '0',
@@ -310,6 +310,57 @@ function extractInstructions(tokens: string[]): string[] {
   return parts;
 }
 
+/**
+ * Spoken approach clearances → typed grammar for the VTF command path.
+ * Targets JO 7110.65BB 5-9-4 patterns: miles from fix, turn/heading,
+ * maintain until established, cleared ILS/VOR runway approach.
+ */
+export function extractApproachClearance(tokens: string[]): string[] {
+  const parts: string[] = [];
+  const joined = tokens.join(' ');
+
+  // "four miles from the final approach fix" / "four miles from lima"
+  const milesIdx = tokens.findIndex((t, i) => isNumberWord(t) && tokens[i + 1] === 'miles' && tokens[i + 2] === 'from');
+  if (milesIdx >= 0) {
+    const dig = spokenDigitsSequence([tokens[milesIdx]]) || spokenGroupNumber([tokens[milesIdx]]);
+    let fixEnd = milesIdx + 3;
+    while (fixEnd < tokens.length && !['turn', 'left', 'right', 'heading', 'maintain', 'cleared', 'climb', 'descend'].includes(tokens[fixEnd])) {
+      fixEnd += 1;
+    }
+    const fixWords = tokens.slice(milesIdx + 3, fixEnd).join(' ').replace(/^the\s+/, '');
+    if (dig) parts.push(`${dig} MILES FROM ${(fixWords || 'FINAL APPROACH FIX').toUpperCase()}`);
+  }
+
+  // reuse heading / turn extractors
+  parts.push(...extractInstructions(tokens).filter((p) => p.startsWith('TL') || p.startsWith('TR') || p.startsWith('H') || p.startsWith('S')));
+
+  // maintain <alt> until established
+  const maintIdx = tokens.findIndex((t, i) => t === 'maintain' && tokens.slice(i, i + 8).includes('established'));
+  if (maintIdx >= 0) {
+    const { words } = collectWhile(tokens, maintIdx + 1, (w) => isNumberWord(w) || w === 'flight' || w === 'level');
+    const alt = spokenAltitudeToHundreds(words);
+    if (alt) parts.push(`MAINTAIN A${alt.padStart(3, '0')} UNTIL ESTABLISHED`);
+  }
+
+  // cleared ILS/VOR runway NN approach
+  if (/\bcleared\b/.test(joined) && /\b(ils|vor)\b/.test(joined) && /\b(runway|rwy)\b/.test(joined)) {
+    const kind = /\bils\b/.test(joined) ? 'ILS' : 'VOR';
+    const rwyIdx = tokens.findIndex((t) => t === 'runway' || t === 'rwy');
+    const { words } = collectWhile(tokens, rwyIdx + 1, (w) => isNumberWord(w) || w === 'left' || w === 'right' || w === 'center');
+    const digits = spokenDigitsSequence(words.filter(isDigitWord)) || spokenGroupNumber(words.filter(isNumberWord));
+    if (digits) parts.push(`CLEARED ${kind} RWY ${digits} APPROACH`);
+  }
+
+  // maintain NNN knots until <fix>
+  const knotsUntil = joined.match(/maintain .+ knots until/);
+  if (knotsUntil) {
+    const speedParts = extractInstructions(tokens).filter((p) => p.startsWith('S'));
+    parts.push(...speedParts);
+  }
+
+  return parts;
+}
+
 export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]): SpeechParseResult {
   const transcript = normalizeTranscript(transcriptRaw);
   if (!transcript) {
@@ -337,6 +388,19 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
       instructionTokens = tokens.slice(cut);
       break;
     }
+  }
+
+  const approachParts = extractApproachClearance(instructionTokens.length ? instructionTokens : tokens);
+  if (approachParts.some((p) => p.includes('CLEARED'))) {
+    if (!match) {
+      return { ok: false, transcript, reason: 'station_calling', message: 'Station calling, say again' };
+    }
+    return {
+      ok: true,
+      transcript,
+      callsign: match.callsign,
+      command: `${match.callsign} ${approachParts.join(' ')}`,
+    };
   }
 
   const instructions = extractInstructions(instructionTokens.length ? instructionTokens : tokens);
@@ -379,6 +443,32 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
     callsign: match.callsign,
     command: `${match.callsign} ${instructions.join(' ')}`,
   };
+}
+
+export function buildTapApproachClearance(
+  callsign: string,
+  opts: {
+    milesFrom: number;
+    fixName: string;
+    turn: 'LEFT' | 'RIGHT';
+    heading: number;
+    maintainHundreds: number;
+    kind: 'ILS' | 'VOR';
+    runway: string;
+  },
+): { command: string; phraseology: string } {
+  const hdg = String(((Math.round(opts.heading) % 360) + 360) % 360 || 360).padStart(3, '0');
+  const turnCode = opts.turn === 'LEFT' ? 'TL' : 'TR';
+  const alt = String(opts.maintainHundreds).padStart(3, '0');
+  const command = `${callsign} ${opts.milesFrom} MILES FROM ${opts.fixName.toUpperCase()} ${turnCode}${hdg} MAINTAIN A${alt} UNTIL ESTABLISHED CLEARED ${opts.kind} RWY ${opts.runway} APPROACH`;
+  const phraseology = [
+    speakCallsign(callsign),
+    `${speakDigits(String(opts.milesFrom))} miles from ${opts.fixName.toLowerCase()}`,
+    `turn ${opts.turn.toLowerCase()} heading ${speakHeading(opts.heading)}`,
+    `maintain ${speakAltitudeHundreds(opts.maintainHundreds)} until established on the ${opts.kind === 'ILS' ? 'localizer' : 'final approach course'}`,
+    `cleared ${opts.kind} runway ${speakDigits(opts.runway)} approach`,
+  ].join(', ');
+  return { command, phraseology };
 }
 
 export function buildTapClearance(

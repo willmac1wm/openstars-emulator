@@ -48,6 +48,16 @@ Pilot sims sell embodiment: stick, view, landing. ATC is delayed feedback and at
 
 Classroom mode keeps the fuller traffic count and typing. Expo arcade is the attract / walk-up path.
 
+## Vector to Final (new)
+
+Selectable from the main menu. Uses a deterministic fixed-timestep sim engine (`sim/`) with serializable actions (multiplayer/handoff foundation — networking not built yet).
+
+- ILS RWY 28 final on centerline, or VOR RWY 28 with FAC offset +5°
+- FAF, approach gate, extended centerline, range marks, wind (calm or from/speed)
+- Intercept legality and approach clearance phraseology per JO 7110.65BB Chg 3 (¶5-9-1, ¶5-9-2/TBL 5-9-1, ¶5-9-4, ¶4-8-1); speed limits ¶5-7-1; wake Categories A–I ¶5-5-4; citations in `sim/citations.ts`
+- PTT / typed / tap approach clearances; pilot readbacks via existing TTS
+- Seeded, key-free, offline
+
 ## Pilot voices
 
 Typed clearances are parsed with the same command grammar the scope already used. Each supported instruction has a fixed readback template. Nothing is sent to a language model to invent phraseology, so the words stay stable offline.
