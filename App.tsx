@@ -18,7 +18,7 @@ import type { ApproachKind, WindState } from './sim/types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { applyCommandPatch, parseCommand } from './services/commandParser';
-import { primePilotVoice, speakPilot } from './services/pilotVoice';
+import { preloadPilotVoice, primePilotVoice, speakPilot } from './services/pilotVoice';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
 import { parseSpokenClearance } from './services/speechCommand';
@@ -667,6 +667,11 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { requestRef.current = requestAnimationFrame(animate); return () => cancelAnimationFrame(requestRef.current!); }, [gameState, updatePhysics]);
+
+  // Preload Kokoro during menu idle — do not block first paint.
+  useEffect(() => {
+    preloadPilotVoice();
+  }, []);
 
   useEffect(() => {
     const unlock = () => primePilotVoice();

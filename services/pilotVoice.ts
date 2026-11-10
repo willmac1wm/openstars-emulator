@@ -10,8 +10,13 @@ export const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 /** q8 maps to onnx/model_quantized.onnx in Transformers.js (about 92 MB). */
 export const KOKORO_DTYPE = 'q8' as const;
 
+/** Approximate quantized model size used when progress_callback omits totals. */
+export const KOKORO_APPROX_BYTES = 92_361_116;
+
 const LOAD_TIMEOUT_MS = 90_000;
 const SLOW_GENERATE_MS = 8_000;
+/** Loads finishing this fast are treated as browser-cache hits. */
+const CACHE_FAST_MS = 2_500;
 
 export type VoicePhase = 'idle' | 'loading' | 'ready' | 'fallback';
 
@@ -20,18 +25,34 @@ export interface VoiceRuntime {
   /** 0–1 while the neural model is downloading. */
   progress: number;
   engine: 'none' | 'kokoro' | 'webspeech';
+  /** True when the load completed from HTTP/Cache API quickly. */
+  fromCache: boolean;
+  /** True after a silent warm-up generate. */
+  warmed: boolean;
+  /** Wall-clock ms spent in the last load attempt (0 if not finished). */
+  loadMs: number;
 }
 
 type KokoroModule = typeof import('kokoro-js');
 type KokoroEngine = InstanceType<KokoroModule['KokoroTTS']>;
 
-let runtime: VoiceRuntime = { phase: 'idle', progress: 0, engine: 'none' };
+let runtime: VoiceRuntime = {
+  phase: 'idle',
+  progress: 0,
+  engine: 'none',
+  fromCache: false,
+  warmed: false,
+  loadMs: 0,
+};
 const runtimeListeners = new Set<() => void>();
 
 let audioCtx: AudioContext | null = null;
 let kokoro: KokoroEngine | null = null;
 let enginePromise: Promise<void> | null = null;
 let useBrowser = false;
+let forceBasic = false;
+let preloadStarted = false;
+let loadStartedAt = 0;
 
 interface Utterance {
   text: string;
@@ -55,6 +76,20 @@ export function subscribeVoiceRuntime(listener: () => void): () => void {
   return () => runtimeListeners.delete(listener);
 }
 
+/** Human-readable status for menu / attract banners. */
+export function voiceStatusLabel(rt: VoiceRuntime = runtime): string {
+  if (forceBasic || rt.phase === 'fallback' || rt.engine === 'webspeech') {
+    return 'Using basic voice';
+  }
+  if (rt.phase === 'ready' && rt.engine === 'kokoro') {
+    return rt.fromCache ? 'Pilot voices ready ✓ (cached)' : 'Pilot voices ready ✓';
+  }
+  if (rt.phase === 'loading') {
+    return `Loading pilot voices… ${Math.round(rt.progress * 100)}%`;
+  }
+  return 'Pilot voices standby';
+}
+
 export function unlockAudio() {
   if (typeof window === 'undefined') return;
   const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -63,35 +98,90 @@ export function unlockAudio() {
   if (audioCtx.state === 'suspended') void audioCtx.resume();
 }
 
-/** Call from a click or keypress. Downloads the neural voice only after that gesture. */
+/**
+ * Begin Kokoro download/init during idle time on the menu.
+ * Does not require a click (fetch/WASM init only). Audio unlock still waits for a gesture.
+ */
+export function preloadPilotVoice() {
+  if (typeof window === 'undefined') return;
+  if (forceBasic) return;
+  if (!getVoiceSettings().enabled) return;
+  if (preloadStarted || runtime.phase === 'ready' || runtime.phase === 'fallback') return;
+  preloadStarted = true;
+  const start = () => {
+    void ensureEngine();
+  };
+  const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+  if (typeof ric === 'function') {
+    ric(start, { timeout: 1500 });
+  } else {
+    window.setTimeout(start, 0);
+  }
+}
+
+/** Call from a click or keypress — unlocks audio and ensures the engine is loading. */
 export function primePilotVoice() {
   unlockAudio();
   if (!getVoiceSettings().enabled) return;
+  preloadPilotVoice();
   void ensureEngine();
 }
 
+/**
+ * Skip neural voices for this session (teacher escape hatch).
+ * Future speakPilot calls use Web Speech immediately.
+ */
+export function useBasicVoiceNow() {
+  forceBasic = true;
+  useBrowser = true;
+  kokoro = null;
+  setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech', fromCache: false, warmed: false });
+}
+
+/**
+ * Speak a pilot readback.
+ * If Kokoro is not ready yet, use Web Speech immediately so the student always
+ * hears something — never silent-wait on the first clearance.
+ */
 export function speakPilot(text: string, callsign: string) {
   if (!text || !getVoiceSettings().enabled) return;
-  primePilotVoice();
+  unlockAudio();
+  preloadPilotVoice();
+
+  if (forceBasic || useBrowser || !kokoro || runtime.phase !== 'ready') {
+    void ensureEngine(); // keep loading in background
+    void speakBrowser(text, callsign, getVoiceSettings());
+    return;
+  }
+
   queue.push({ text, callsign });
   void drain();
 }
 
 function ensureEngine(): Promise<void> {
+  if (forceBasic) {
+    setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech' });
+    return Promise.resolve();
+  }
   if (!enginePromise) enginePromise = initEngine();
   return enginePromise;
 }
 
 async function initEngine() {
-  setRuntime({ phase: 'loading', progress: 0, engine: 'none' });
+  loadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  setRuntime({ phase: 'loading', progress: 0.02, engine: 'none', fromCache: false, warmed: false, loadMs: 0 });
   try {
     kokoro = await withTimeout(loadKokoro(), LOAD_TIMEOUT_MS);
     useBrowser = false;
-    setRuntime({ phase: 'ready', progress: 1, engine: 'kokoro' });
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - loadStartedAt;
+    const fromCache = elapsed < CACHE_FAST_MS;
+    setRuntime({ phase: 'ready', progress: 1, engine: 'kokoro', fromCache, loadMs: Math.round(elapsed) });
+    await warmUpKokoro();
   } catch {
     kokoro = null;
     useBrowser = true;
-    setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech' });
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - loadStartedAt;
+    setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech', fromCache: false, warmed: false, loadMs: Math.round(elapsed) });
   }
 }
 
@@ -119,19 +209,39 @@ async function loadKokoro(): Promise<KokoroEngine> {
   return KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
     dtype: KOKORO_DTYPE,
     device: 'wasm',
-    progress_callback: (info) => {
-      if (info.status !== 'progress' || !info.total) return;
-      const key = info.file || 'model';
-      files.set(key, { loaded: info.loaded || 0, total: info.total });
-      let loaded = 0;
-      let total = 0;
-      for (const file of files.values()) {
-        loaded += file.loaded;
-        total += file.total;
+    progress_callback: (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
+      if (info.status === 'progress') {
+        const key = info.file || 'model';
+        const total = info.total && info.total > 0 ? info.total : KOKORO_APPROX_BYTES;
+        const loaded = info.loaded || 0;
+        files.set(key, { loaded, total });
+        let sumLoaded = 0;
+        let sumTotal = 0;
+        for (const file of files.values()) {
+          sumLoaded += file.loaded;
+          sumTotal += file.total;
+        }
+        if (sumTotal > 0) {
+          setRuntime({ phase: 'loading', progress: Math.min(0.99, sumLoaded / sumTotal) });
+        }
+      } else if (info.status === 'ready' || info.status === 'done') {
+        setRuntime({ phase: 'loading', progress: Math.max(runtime.progress, 0.95) });
       }
-      if (total > 0) setRuntime({ phase: 'loading', progress: Math.min(1, loaded / total) });
     },
   });
+}
+
+/** First Kokoro inference is slow even after download — burn one short generate. */
+async function warmUpKokoro() {
+  if (!kokoro || forceBasic) return;
+  try {
+    const voice = voiceForCallsign('AAL421') satisfies PilotVoice;
+    // Tiny utterance; we discard audio (no play) so no gesture/AudioContext required.
+    await withTimeout(kokoro.generate('Roger.', { voice, speed: 1 }), SLOW_GENERATE_MS);
+    setRuntime({ warmed: true });
+  } catch {
+    /* warm-up failure is non-fatal; first spoken line may still be slow */
+  }
 }
 
 async function drain() {
@@ -146,17 +256,16 @@ async function drain() {
       }
       const item = queue.shift();
       if (!item) break;
-      await ensureEngine();
-      if (!useBrowser && kokoro) {
-        const played = await speakNeural(item, settings);
-        if (!played) {
-          useBrowser = true;
-          kokoro = null;
-          setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech' });
-          await speakBrowser(item.text, item.callsign, getVoiceSettings());
-        }
-      } else {
+      if (forceBasic || useBrowser || !kokoro || runtime.phase !== 'ready') {
         await speakBrowser(item.text, item.callsign, settings);
+        continue;
+      }
+      const played = await speakNeural(item, settings);
+      if (!played) {
+        useBrowser = true;
+        kokoro = null;
+        setRuntime({ phase: 'fallback', progress: 1, engine: 'webspeech' });
+        await speakBrowser(item.text, item.callsign, getVoiceSettings());
       }
     }
   } finally {
@@ -312,4 +421,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
+}
+
+/** Test helper — reset module singletons between vitest cases. */
+export function __resetPilotVoiceForTests() {
+  runtime = { phase: 'idle', progress: 0, engine: 'none', fromCache: false, warmed: false, loadMs: 0 };
+  kokoro = null;
+  enginePromise = null;
+  useBrowser = false;
+  forceBasic = false;
+  preloadStarted = false;
+  queue.length = 0;
+  draining = false;
 }

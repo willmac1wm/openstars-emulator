@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
+import VoicePreloadBanner from './VoicePreloadBanner';
+import { getVoiceRuntime, subscribeVoiceRuntime, VoiceRuntime } from '../services/pilotVoice';
 
 interface AttractModeProps {
   onStart: () => void;
@@ -13,17 +15,22 @@ const LINES = [
 
 const AttractMode: React.FC<AttractModeProps> = ({ onStart }) => {
   const [line, setLine] = useState(0);
+  const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
 
   useEffect(() => {
     const timer = setInterval(() => setLine((n) => (n + 1) % LINES.length), 2800);
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => subscribeVoiceRuntime(() => setVoice(getVoiceRuntime())), []);
+
   useEffect(() => {
     const start = () => onStart();
     window.addEventListener('keydown', start);
     return () => window.removeEventListener('keydown', start);
   }, [onStart]);
+
+  const loading = voice.phase === 'loading';
 
   return (
     <button
@@ -43,8 +50,14 @@ const AttractMode: React.FC<AttractModeProps> = ({ onStart }) => {
         <div className="text-gray-300 text-lg md:text-2xl min-h-[3rem] max-w-2xl" aria-live="polite">
           {LINES[line]}
         </div>
-        <div className="mt-4 px-8 py-5 rounded-xl bg-green-500 text-black font-bold text-xl md:text-3xl shadow-[0_0_40px_rgba(20,241,149,0.45)] flex items-center gap-3 animate-in zoom-in">
-          <Play fill="black" /> Press to be an Air Traffic Controller
+        <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <VoicePreloadBanner compact showBasicOption={loading} />
+        </div>
+        <div className="mt-2 px-8 py-5 rounded-xl bg-green-500 text-black font-bold text-xl md:text-3xl shadow-[0_0_40px_rgba(20,241,149,0.45)] flex flex-col items-center gap-2 animate-in zoom-in">
+          <span className="flex items-center gap-3"><Play fill="black" /> Press to be an Air Traffic Controller</span>
+          {loading && (
+            <span className="text-sm font-normal opacity-80">Voices still loading — start anyway?</span>
+          )}
         </div>
         <div className="text-gray-600 text-xs md:text-sm">Any key or tap starts a 3-minute arcade shift</div>
       </div>
