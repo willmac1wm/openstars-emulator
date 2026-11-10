@@ -15,7 +15,7 @@ const MODES: Array<{
   desc: string;
   badge?: string;
 }> = [
-  { id: 'Expo', label: 'EXPO HOT SEAT', desc: '90 seconds · 3 planes · big chips · walk-up', badge: 'BOOTHS' },
+  { id: 'Expo', label: 'EXPO ARCADE', desc: '3 min · PTT voice · waves · high scores', badge: 'BOOTHS' },
   { id: 'Easy', label: 'TRAINEE', desc: '4 aircraft · classroom starter' },
   { id: 'Medium', label: 'CONTROLLER', desc: '8 aircraft · standard lesson' },
   { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
@@ -55,7 +55,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = nu
             className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-2xl md:text-3xl py-6 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center gap-1"
           >
             <span className="flex items-center gap-3"><Play fill="black" size={28} /> TRY THE SCOPE</span>
-            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">Expo hot seat · projector friendly</span>
+            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">3-min arcade · voice · projector friendly</span>
           </button>
 
           <div className="flex flex-wrap gap-3 items-center justify-between bg-gray-950 border border-gray-800 rounded p-3">

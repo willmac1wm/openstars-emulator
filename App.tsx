@@ -6,6 +6,9 @@ import MainMenu from './components/MainMenu';
 import SummaryScreen from './components/SummaryScreen';
 import FlightStripBay from './components/FlightStripBay';
 import ReferencePanel from './components/ReferencePanel';
+import AttractMode from './components/AttractMode';
+import ArcadeSummary from './components/ArcadeSummary';
+import ExpoArcadeHUD from './components/ExpoArcadeHUD';
 import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource, StartOptions } from './types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
@@ -13,6 +16,18 @@ import { applyCommandPatch, parseCommand } from './services/commandParser';
 import { primePilotVoice, speakPilot } from './services/pilotVoice';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
+import { parseSpokenClearance } from './services/speechCommand';
+import {
+  ARCADE_DURATION_MS,
+  ATTRACT_IDLE_MS,
+  applyGoAround,
+  arcadeWaveAircraft,
+  buildArcadeRound,
+  curveballPilotPhrase,
+  planToInitialScenario,
+  perfectHandoffPilotLine,
+  spawnCurveballAircraft,
+} from './services/arcade';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
   SIM_SPEED_OPTIONS, GATES, NM_3_PX, NM_4_PX,
@@ -57,11 +72,42 @@ const App: React.FC = () => {
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
   const [scoreFlash, setScoreFlash] = useState<string | null>(null);
   const [scenarioSeed, setScenarioSeed] = useState<string | null>(() => readSeedFromLocation());
+  const [showAttract, setShowAttract] = useState(false);
+  const [arcadeEndsAt, setArcadeEndsAt] = useState<number | null>(null);
+  const [arcadeRemainingMs, setArcadeRemainingMs] = useState(ARCADE_DURATION_MS);
+  const [arcadeBanner, setArcadeBanner] = useState<string | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [showArcadeSummary, setShowArcadeSummary] = useState(false);
+  const [conflictAlarm, setConflictAlarm] = useState(false);
 
   const requestRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
+  const idleTimerRef = useRef<number | null>(null);
+  const waveTimersRef = useRef<number[]>([]);
+  const curveballTimerRef = useRef<number | null>(null);
+  const arcadeActiveRef = useRef(false);
   
   const incidentCooldowns = useRef<Map<string, number>>(new Map());
+
+  const playConflictBeep = useCallback(() => {
+    try {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.05;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+      setTimeout(() => void ctx.close(), 300);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const logSeq = useRef(1);
   const addLog = useCallback((text: string, source: CommSource = 'system') => {
@@ -125,18 +171,21 @@ const App: React.FC = () => {
       requestedSeed ?? DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS],
       difficulty,
     );
-    const expo = difficulty === 'Expo';
+    if (difficulty === 'Expo') {
+      startArcadeRound(seed.display);
+      return;
+    }
 
     identifyUser('guest-' + Math.floor(Math.random() * 1000000));
-    setPlayMode(expo ? 'expo' : 'standard');
+    setPlayMode('standard');
     setScoreFlash(null);
     setScenarioSeed(seed.display);
     writeSeedToUrl(seed.display);
     setGameState(SimulationState.LOADING);
-    setStatusMessage(expo ? 'OPENING EXPO SCOPE...' : 'INITIALIZING RADAR SCENARIO...');
-    setTimeScale(expo ? 4 : DEFAULT_TIME_SCALE);
+    setStatusMessage('INITIALIZING RADAR SCENARIO...');
+    setTimeScale(DEFAULT_TIME_SCALE);
 
-    trackEvent('Game Started', { difficulty, mode: expo ? 'Expo' : 'Guest', seed: seed.display });
+    trackEvent('Game Started', { difficulty, mode: 'Guest', seed: seed.display });
 
     try {
       const scenario = await generateScenario(difficulty, seed.display);
@@ -149,9 +198,7 @@ const App: React.FC = () => {
       setSelectedId(firstId);
       setGameState(SimulationState.RUNNING);
       setStatusMessage(`RADAR CONTACT: ${scenario.name}`);
-      addLog(expo
-        ? `EXPO HOT SEAT. ${scenario.aircraft.length} AIRCRAFT. CLEAR THEM THROUGH THEIR GATES.`
-        : `GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
+      addLog(`GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
       if (scenario.seedLabel) {
         setScenarioSeed(scenario.seedLabel);
         addLog(`SCENARIO SEED ${scenario.seedLabel}`);
@@ -178,7 +225,23 @@ const App: React.FC = () => {
     }
   };
 
-  const returnToMenu = () => {
+  const clearArcadeTimers = useCallback(() => {
+    waveTimersRef.current.forEach((id) => window.clearTimeout(id));
+    waveTimersRef.current = [];
+    if (curveballTimerRef.current) {
+      window.clearTimeout(curveballTimerRef.current);
+      curveballTimerRef.current = null;
+    }
+  }, []);
+
+  const returnToMenu = (opts?: { attract?: boolean }) => {
+    clearArcadeTimers();
+    arcadeActiveRef.current = false;
+    setArcadeEndsAt(null);
+    setArcadeBanner(null);
+    setLiveTranscript('');
+    setShowArcadeSummary(false);
+    setConflictAlarm(false);
     setGameState(SimulationState.MENU);
     setAircraft([]);
     setMessages([{ id: 1, text: INITIAL_INSTRUCTION, source: 'system' }]);
@@ -187,9 +250,19 @@ const App: React.FC = () => {
     setPlayMode('standard');
     setScoreFlash(null);
     setTimeScale(DEFAULT_TIME_SCALE);
+    setShowAttract(!!opts?.attract);
   };
 
   const endGame = useCallback(() => {
+    clearArcadeTimers();
+    if (arcadeActiveRef.current) {
+      arcadeActiveRef.current = false;
+      setGameState(SimulationState.SUMMARY);
+      setShowArcadeSummary(true);
+      setArcadeEndsAt(null);
+      trackEvent('Arcade Completed', { score, separationBusts: stats.separationBusts });
+      return;
+    }
     setGameState(SimulationState.SUMMARY);
     if (score > highScore) {
         setHighScore(score);
@@ -198,7 +271,73 @@ const App: React.FC = () => {
     } else {
         trackEvent('Game Completed', { score, separationBusts: stats.separationBusts });
     }
-  }, [score, highScore, stats.separationBusts]);
+  }, [score, highScore, stats.separationBusts, clearArcadeTimers]);
+
+  const startArcadeRound = useCallback((seedLabel?: string) => {
+    clearArcadeTimers();
+    const seed = resolveSeedInput(seedLabel || readSeedFromLocation() || 'arcade-1', 'Expo');
+    const plan = buildArcadeRound(seed.display);
+    const scenario = planToInitialScenario(plan);
+    arcadeActiveRef.current = true;
+    setShowAttract(false);
+    setShowArcadeSummary(false);
+    setPlayMode('expo');
+    setScenarioSeed(seed.display);
+    writeSeedToUrl(seed.display);
+    setScoreFlash(null);
+    setArcadeBanner('SHIFT OPEN — clear the gates. Hold PTT to talk.');
+    setLiveTranscript('');
+    setConflictAlarm(false);
+    setTimeScale(4);
+    identifyUser('guest-arcade');
+    const firstId = scenario.aircraft[0]?.id ?? null;
+    setAircraft(scenario.aircraft.map((ac, index) => ({ ...ac, isSelected: index === 0 })));
+    setSelectedId(firstId);
+    setGameState(SimulationState.RUNNING);
+    setStatusMessage(`ARCADE: ${plan.name}`);
+    setMessages([{ id: 1, text: 'EXPO ARCADE SHIFT — 3 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
+    setScore(0);
+    setStats({ ...INITIAL_STATS, startTime: Date.now() });
+    incidentCooldowns.current.clear();
+    lastTimeRef.current = 0;
+    const endsAt = Date.now() + plan.durationMs;
+    setArcadeEndsAt(endsAt);
+    setArcadeRemainingMs(plan.durationMs);
+
+    // Escalating waves
+    plan.waves.slice(1).forEach((wave, index) => {
+      const timer = window.setTimeout(() => {
+        setAircraft((prev) => {
+          const incoming = arcadeWaveAircraft(plan, index + 1);
+          return [...prev, ...incoming.map((ac) => ({ ...ac, isSelected: false }))];
+        });
+        setArcadeBanner(`WAVE ${index + 2} INBOUND`);
+        addLog(`WAVE ${index + 2}: ${wave.length} AIRCRAFT`, 'system');
+      }, (index + 1) * 50_000);
+      waveTimersRef.current.push(timer);
+    });
+
+    curveballTimerRef.current = window.setTimeout(() => {
+      setArcadeBanner(plan.curveball.banner);
+      addLog(plan.curveball.banner, 'system');
+      if (plan.curveball.kind === 'goaround') {
+        setAircraft((prev) => applyGoAround(prev));
+      } else {
+        const spawned = spawnCurveballAircraft(plan);
+        if (spawned) {
+          setAircraft((prev) => [...prev, { ...spawned, isSelected: false }]);
+          setSelectedId(spawned.id);
+        }
+      }
+      const line = curveballPilotPhrase(plan.curveball.kind);
+      if (line) {
+        addLog(line, 'pilot');
+        speakPilot(line, plan.curveball.callsign || 'MEDEVAC1');
+      }
+    }, plan.curveball.atMs);
+
+    trackEvent('Arcade Started', { seed: seed.display, curveball: plan.curveball.kind });
+  }, [addLog, clearArcadeTimers]);
 
   // --- Command Parser ---
   const handleCommand = (cmdRaw: string) => {
@@ -208,7 +347,15 @@ const App: React.FC = () => {
       addLog(`TARGET ${parsed.callsign} NOT FOUND`, 'system');
       return;
     }
+
+    const target = aircraft.find((ac) => ac.id === parsed.aircraftId);
     addLog(parsed.controllerEcho, 'controller');
+
+    if (target?.special === 'nordo') {
+      addLog('No reply (NORDO)', 'system');
+      return;
+    }
+
     if (parsed.patch && parsed.aircraftId) {
       const aircraftId = parsed.aircraftId;
       const patch = parsed.patch;
@@ -220,6 +367,75 @@ const App: React.FC = () => {
       trackEvent('Command Issued', { callsign: parsed.callsign, command: parsed.controllerEcho });
     }
   };
+
+  const aircraftRef = useRef(aircraft);
+  aircraftRef.current = aircraft;
+  const handleCommandRef = useRef(handleCommand);
+  handleCommandRef.current = handleCommand;
+
+  const handleSpokenTranscript = useCallback((text: string, isFinal: boolean) => {
+    setLiveTranscript(text);
+    if (!isFinal || !text.trim()) return;
+    const spoken = parseSpokenClearance(text, aircraftRef.current);
+    if (!spoken.ok) {
+      const line = spoken.message || 'Say again';
+      addLog(line, 'pilot');
+      speakPilot(line, spoken.callsign || 'PILOT');
+      return;
+    }
+    if (spoken.command) handleCommandRef.current(spoken.command);
+  }, [addLog]);
+
+  const handleSpeechError = useCallback((message: string) => {
+    addLog(message, 'system');
+  }, [addLog]);
+
+  const requestFullscreen = useCallback(() => {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) {
+      void el.requestFullscreen?.().catch(() => undefined);
+    } else {
+      void document.exitFullscreen?.().catch(() => undefined);
+    }
+  }, []);
+
+  const bumpIdle = useCallback(() => {
+    if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+    if (gameState !== SimulationState.MENU || showAttract) return;
+    idleTimerRef.current = window.setTimeout(() => setShowAttract(true), ATTRACT_IDLE_MS);
+  }, [gameState, showAttract]);
+
+  useEffect(() => {
+    bumpIdle();
+    const onActivity = () => bumpIdle();
+    window.addEventListener('pointerdown', onActivity);
+    window.addEventListener('keydown', onActivity);
+    return () => {
+      window.removeEventListener('pointerdown', onActivity);
+      window.removeEventListener('keydown', onActivity);
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current);
+    };
+  }, [bumpIdle]);
+
+  useEffect(() => {
+    if (!arcadeEndsAt || gameState !== SimulationState.RUNNING || !arcadeActiveRef.current) return;
+    const tick = () => {
+      const remaining = arcadeEndsAt - Date.now();
+      setArcadeRemainingMs(remaining);
+      if (remaining <= 0) {
+        endGame();
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [arcadeEndsAt, gameState, endGame]);
+
+  useEffect(() => {
+    if (!arcadeBanner) return;
+    const timer = window.setTimeout(() => setArcadeBanner(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [arcadeBanner]);
 
   const updatePhysics = useCallback((deltaSeconds: number) => {
     setAircraft(prev => {
@@ -307,11 +523,19 @@ const App: React.FC = () => {
 
                     let pts = 0;
                     if (isClean) {
-                        pts += SCORE_PERFECT_EXIT;
+                        const bonus = playMode === 'expo' ? Math.max(SCORE_PERFECT_EXIT, 1000) : SCORE_PERFECT_EXIT;
+                        pts += bonus;
                         setStats(s => ({...s, perfectExits: s.perfectExits + 1}));
-                        addLog(`${ac.callsign} CLEAN EXIT ${enteredGate.label}. +${SCORE_PERFECT_EXIT}`);
-                        handoffResult = "CLEAN EXIT";
-                        setScoreFlash(`${ac.callsign} CLEAN +${SCORE_PERFECT_EXIT}`);
+                        if (playMode === 'expo') {
+                          addLog(`Perfect handoff +${bonus}`, 'system');
+                          handoffResult = 'CLEAN EXIT';
+                          setScoreFlash(`Perfect handoff +${bonus}`);
+                          speakPilot(perfectHandoffPilotLine(ac.callsign), ac.callsign);
+                        } else {
+                          addLog(`${ac.callsign} CLEAN EXIT ${enteredGate.label}. +${bonus}`);
+                          handoffResult = "CLEAN EXIT";
+                          setScoreFlash(`${ac.callsign} CLEAN +${bonus}`);
+                        }
                     } else {
                         pts += SCORE_SLOPPY_EXIT;
                         setStats(s => ({...s, sloppyExits: s.sloppyExits + 1}));
@@ -349,7 +573,7 @@ const App: React.FC = () => {
 
       return checkSeparation(updated);
     });
-  }, [addLog, timeScale, endGame]);
+  }, [addLog, timeScale, endGame, playMode]);
 
   const checkSeparation = (aircraftList: Aircraft[]): Aircraft[] => {
     const newAircraft = [...aircraftList];
@@ -397,6 +621,12 @@ const App: React.FC = () => {
                                     involved: [a.callsign, b.callsign]
                                 }]
                             }));
+                            if (playMode === 'expo') {
+                              setConflictAlarm(true);
+                              playConflictBeep();
+                              setScoreFlash('LOSS OF SEPARATION');
+                              window.setTimeout(() => setConflictAlarm(false), 1800);
+                            }
                         }
                     } else {
                          newAircraft[i].alertLevel = Math.max(newAircraft[i].alertLevel, AlertLevel.WARNING);
@@ -448,13 +678,25 @@ const App: React.FC = () => {
 
   const selectedAircraft = aircraft.find(ac => ac.id === selectedId) || null;
 
+  const finishArcadeSummary = () => {
+    returnToMenu({ attract: true });
+  };
+
   return (
     <div className="flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white overflow-hidden touch-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] relative" onContextMenu={(e) => e.preventDefault()}>
       
-      {gameState === SimulationState.MENU && (
+      {gameState === SimulationState.MENU && !showAttract && (
         <MainMenu onStart={startGame} highScore={highScore} activeSeed={scenarioSeed} />
       )}
-      {gameState === SimulationState.SUMMARY && <SummaryScreen score={score} stats={stats} onReset={returnToMenu} />}
+      {showAttract && gameState === SimulationState.MENU && (
+        <AttractMode onStart={() => startArcadeRound()} />
+      )}
+      {gameState === SimulationState.SUMMARY && showArcadeSummary && (
+        <ArcadeSummary score={score} stats={stats} onDone={finishArcadeSummary} />
+      )}
+      {gameState === SimulationState.SUMMARY && !showArcadeSummary && (
+        <SummaryScreen score={score} stats={stats} onReset={returnToMenu} />
+      )}
 
       {/* PRO DASHBOARD LAYOUT */}
       <div className="flex-1 flex min-h-0 min-w-0 bg-[#050505]">
@@ -466,7 +708,7 @@ const App: React.FC = () => {
 
           {/* CENTER: Radar Scope */}
           <div className="flex-1 relative overflow-hidden flex items-center justify-center">
-            <div className="relative h-full aspect-square max-w-full shadow-2xl bg-black border-2 border-gray-700 rounded-sm box-border">
+            <div className={`relative h-full aspect-square max-w-full shadow-2xl bg-black border-2 rounded-sm box-border ${conflictAlarm ? 'border-red-500 animate-pulse' : 'border-gray-700'}`}>
                 <RadarScope
                   aircraft={aircraft}
                   onSelectAircraft={handleSelect}
@@ -484,15 +726,23 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {playMode === 'expo' && gameState === SimulationState.RUNNING && (
+                {playMode === 'expo' && gameState === SimulationState.RUNNING && !arcadeBanner && (
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-black/80 border border-green-700 text-green-300 text-[11px] md:text-xs px-3 py-2 rounded shadow-lg text-center">
-                    Select a plane. Tap a command chip or type. Aim for the pulsing gate.
+                    Hold PTT and speak, or tap a plane and build a clearance. Aim for the pulsing gate.
                   </div>
                 )}
 
-                {scoreFlash && (
+                {conflictAlarm && (
+                  <div className="absolute inset-0 z-40 pointer-events-none bg-red-600/25 flex items-center justify-center">
+                    <div className="text-3xl md:text-5xl font-bold text-red-400 drop-shadow-[0_0_20px_rgba(239,68,68,0.9)]">
+                      CONFLICT
+                    </div>
+                  </div>
+                )}
+
+                {scoreFlash && !conflictAlarm && (
                   <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center">
-                    <div className="text-3xl md:text-5xl font-bold text-green-400 drop-shadow-[0_0_20px_rgba(20,241,149,0.8)] animate-in zoom-in">
+                    <div className={`text-3xl md:text-5xl font-bold drop-shadow-[0_0_20px_rgba(20,241,149,0.8)] animate-in zoom-in ${scoreFlash.includes('LOSS') ? 'text-red-400' : 'text-green-400'}`}>
                       {scoreFlash}
                     </div>
                   </div>
@@ -553,6 +803,18 @@ const App: React.FC = () => {
         statusMessage={statusMessage}
         onMoveLabel={handleMoveDataBlock}
         expoMode={playMode === 'expo'}
+        arcadeHud={playMode === 'expo' && gameState === SimulationState.RUNNING ? (
+          <ExpoArcadeHUD
+            remainingMs={arcadeRemainingMs}
+            banner={arcadeBanner}
+            liveTranscript={liveTranscript}
+            selected={selectedAircraft}
+            onTranscript={handleSpokenTranscript}
+            onSpeechError={handleSpeechError}
+            onIssue={handleCommand}
+            onFullscreen={requestFullscreen}
+          />
+        ) : null}
       />
     </div>
   );

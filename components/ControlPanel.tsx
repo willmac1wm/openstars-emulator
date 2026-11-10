@@ -19,6 +19,7 @@ interface ControlPanelProps {
   statusMessage: string;
   onMoveLabel?: (dir: number) => void;
   expoMode?: boolean;
+  arcadeHud?: React.ReactNode;
 }
 
 function padHeading(heading: number): string {
@@ -44,6 +45,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   statusMessage,
   onMoveLabel,
   expoMode = false,
+  arcadeHud = null,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [copied, setCopied] = useState(false);
@@ -208,7 +210,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </button>
         </div>
 
-        {expoMode && isRunning && (
+        {expoMode && isRunning && !arcadeHud && (
           <div className="grid grid-cols-2 gap-1" data-testid="expo-chips">
             {[
               {
@@ -248,11 +250,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         )}
       </form>
 
+      {arcadeHud && isRunning && (
+        <div className="p-2 border-b border-gray-800 bg-black/40 shrink-0 max-h-[45%] overflow-y-auto">
+          {arcadeHud}
+        </div>
+      )}
+
       {/* 4. BOTTOM SPLIT SECTION (Mobile Portrait) vs STACK (Desktop) */}
       <div className="flex-1 min-h-0 flex flex-row lg:flex-col overflow-hidden">
 
         {/* COMM LOG (Left on Mobile, Top on Desktop) */}
-        <div className={`flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 ${showSoftKeyboard ? 'w-1/2 lg:w-full' : 'w-full'}`}>
+        <div className={`flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 ${showSoftKeyboard && !arcadeHud ? 'w-1/2 lg:w-full' : 'w-full'}`}>
           <div className="absolute top-0 left-0 right-0 bg-gray-800 text-[9px] px-1 text-gray-500 z-10 flex justify-between">
             <span>COMM 1</span><span>124.500</span>
           </div>
@@ -284,8 +292,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* KEYBOARD (Right on Mobile, Bottom on Desktop) - Only if enabled */}
-        {showSoftKeyboard && (
+        {/* KEYBOARD (Right on Mobile, Bottom on Desktop) - Only if enabled; arcade HUD replaces soft keyboard */}
+        {showSoftKeyboard && !arcadeHud && (
           <div className="w-1/2 lg:w-full lg:flex-none h-full lg:h-auto border-t border-gray-800 bg-black">
             <SoftKeyboard
               onKeyPress={handleSoftKey}
