@@ -12,23 +12,19 @@ const VoiceBar: React.FC = () => {
 
   const engine = !settings.enabled
     ? 'off'
-    : runtime.engine === 'kokoro'
+    : settings.naturalVoices && runtime.engine === 'kokoro' && runtime.phase === 'ready'
       ? 'kokoro'
-      : runtime.engine === 'webspeech'
-        ? 'webspeech'
-        : runtime.phase === 'loading'
-          ? 'loading'
-          : 'idle';
+      : runtime.phase === 'loading'
+        ? 'loading'
+        : 'webspeech';
 
   const statusLabel = engine === 'off'
     ? 'VOICE OFF'
     : engine === 'loading'
       ? `LOADING ${Math.round(runtime.progress * 100)}%`
       : engine === 'kokoro'
-        ? (runtime.fromCache ? 'NEURAL·CACHE' : 'NEURAL')
-        : engine === 'webspeech'
-          ? 'BROWSER'
-          : 'VOICE ON';
+        ? (runtime.device === 'webgpu' ? 'NATURAL·GPU' : 'NATURAL')
+        : 'FAST';
 
   return (
     <div className="flex items-center gap-1 text-[10px] text-gray-400" aria-label="Pilot voice">
@@ -48,6 +44,34 @@ const VoiceBar: React.FC = () => {
       >
         {settings.enabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
         VOX
+      </button>
+      <button
+        type="button"
+        data-testid="natural-voices-toggle"
+        title="Natural Kokoro voices are warmer but often slower on Chromebooks. Default is Fast voice (Web Speech)."
+        aria-pressed={settings.naturalVoices}
+        onClick={() => {
+          const next = !settings.naturalVoices;
+          updateVoiceSettings({ naturalVoices: next });
+          if (next) primePilotVoice();
+        }}
+        className={`px-1.5 py-0.5 rounded border ${
+          settings.naturalVoices ? 'border-violet-600 text-violet-200' : 'border-gray-700 text-gray-500'
+        }`}
+      >
+        {settings.naturalVoices ? 'NATURAL' : 'FAST'}
+      </button>
+      <button
+        type="button"
+        data-testid="sound-effects-toggle"
+        title="Gate success chimes and penalty tones (Web Audio). Does not mute pilot readbacks."
+        aria-pressed={settings.soundEffects}
+        onClick={() => updateVoiceSettings({ soundEffects: !settings.soundEffects })}
+        className={`px-1.5 py-0.5 rounded border ${
+          settings.soundEffects ? 'border-cyan-600 text-cyan-200' : 'border-gray-700 text-gray-500'
+        }`}
+      >
+        SFX
       </button>
       <label className="flex items-center gap-1">
         <span className="sr-only">Voice volume</span>
@@ -90,6 +114,7 @@ const VoiceBar: React.FC = () => {
         aria-live="polite"
       >
         {statusLabel}
+        {runtime.lastGenerateMs > 0 && settings.naturalVoices ? ` · ${runtime.lastGenerateMs}ms` : ''}
       </span>
     </div>
   );

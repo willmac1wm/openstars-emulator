@@ -3,6 +3,7 @@ import {
   __resetPilotVoiceForTests,
   getVoiceRuntime,
   speakPilot,
+  splitReadbackChunks,
   useBasicVoiceNow,
   voiceStatusLabel,
 } from './pilotVoice';
@@ -11,7 +12,9 @@ import { updateVoiceSettings } from './voiceSettings';
 describe('pilot voice preload helpers', () => {
   beforeEach(() => {
     __resetPilotVoiceForTests();
-    updateVoiceSettings({ enabled: true, volume: 1, rate: 1, radioEffect: false });
+    updateVoiceSettings({
+      enabled: true, volume: 1, rate: 1, radioEffect: false, naturalVoices: false, soundEffects: true,
+    });
   });
 
   afterEach(() => {
@@ -19,15 +22,27 @@ describe('pilot voice preload helpers', () => {
     vi.restoreAllMocks();
   });
 
-  it('labels loading / ready / basic states', () => {
-    expect(voiceStatusLabel({ phase: 'loading', progress: 0.42, engine: 'none', fromCache: false, warmed: false, loadMs: 0 }))
-      .toBe('Loading pilot voices… 42%');
-    expect(voiceStatusLabel({ phase: 'ready', progress: 1, engine: 'kokoro', fromCache: false, warmed: true, loadMs: 12000 }))
-      .toBe('Pilot voices ready ✓');
-    expect(voiceStatusLabel({ phase: 'ready', progress: 1, engine: 'kokoro', fromCache: true, warmed: true, loadMs: 800 }))
-      .toBe('Pilot voices ready ✓ (cached)');
-    expect(voiceStatusLabel({ phase: 'fallback', progress: 1, engine: 'webspeech', fromCache: false, warmed: false, loadMs: 0 }))
-      .toBe('Using basic voice');
+  it('labels loading / fast / natural / basic states', () => {
+    expect(voiceStatusLabel({
+      phase: 'loading', progress: 0.42, engine: 'none', fromCache: false, warmed: false,
+      loadMs: 0, device: 'none', neuralFastEnough: false, lastGenerateMs: 0,
+    })).toBe('Loading pilot voices… 42%');
+
+    expect(voiceStatusLabel({
+      phase: 'ready', progress: 1, engine: 'kokoro', fromCache: false, warmed: true,
+      loadMs: 12000, device: 'wasm', neuralFastEnough: false, lastGenerateMs: 2400,
+    })).toBe('Fast voice ✓');
+
+    updateVoiceSettings({ naturalVoices: true });
+    expect(voiceStatusLabel({
+      phase: 'ready', progress: 1, engine: 'kokoro', fromCache: true, warmed: true,
+      loadMs: 800, device: 'webgpu', neuralFastEnough: true, lastGenerateMs: 180,
+    })).toBe('Natural voices ready ✓ (cached)');
+
+    expect(voiceStatusLabel({
+      phase: 'fallback', progress: 1, engine: 'webspeech', fromCache: false, warmed: false,
+      loadMs: 0, device: 'none', neuralFastEnough: false, lastGenerateMs: 0,
+    })).toBe('Using basic voice');
   });
 
   it('useBasicVoiceNow flips runtime to webspeech fallback', () => {
@@ -53,16 +68,51 @@ describe('pilot voice preload helpers', () => {
     }
     vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
     vi.stubGlobal('window', {
-      speechSynthesis: { getVoices: () => [], speak },
+      speechSynthesis: { getVoices: () => [], speak, cancel: vi.fn() },
       AudioContext: undefined,
       requestIdleCallback: undefined,
       setTimeout: globalThis.setTimeout.bind(globalThis),
-      location: { origin: 'http://localhost' },
     });
+    vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak, cancel: vi.fn() });
 
-    speakPilot('Turn left heading two seven zero, American four twenty-one', 'AAL421');
+    const ret = speakPilot('Turn left heading two seven zero, American four twenty-one', 'AAL421');
+    expect(ret).toBeUndefined();
     expect(speak).toHaveBeenCalled();
     const utter = speak.mock.calls[0][0] as { text: string };
     expect(utter.text).toContain('Turn left');
+  });
+
+  it('default fast path uses Web Speech even conceptually when naturalVoices is off', () => {
+    updateVoiceSettings({ naturalVoices: false });
+    const speak = vi.fn();
+    class FakeUtterance {
+      text: string;
+      voice: unknown = null;
+      rate = 1;
+      volume = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
+    vi.stubGlobal('window', {
+      speechSynthesis: { getVoices: () => [], speak, cancel: vi.fn() },
+      AudioContext: undefined,
+      requestIdleCallback: undefined,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+    });
+    vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak, cancel: vi.fn() });
+
+    speakPilot('Climb and maintain five thousand, Delta four fifty six', 'DAL456');
+    expect(speak).toHaveBeenCalled();
+  });
+
+  it('splits readbacks into short chunks for streamed natural playback', () => {
+    expect(splitReadbackChunks('Turn left heading two seven zero, American four twenty-one')).toEqual([
+      'Turn left heading two seven zero,',
+      'American four twenty-one',
+    ]);
   });
 });

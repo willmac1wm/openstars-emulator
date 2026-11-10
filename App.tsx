@@ -12,8 +12,9 @@ import ExpoArcadeHUD from './components/ExpoArcadeHUD';
 import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource, StartOptions } from './types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
-import { applyCommandPatch, parseCommand } from './services/commandParser';
-import { preloadPilotVoice, primePilotVoice, speakPilot } from './services/pilotVoice';
+import { issueControllerCommand } from './services/commandIssue';
+import { installVoiceDebugHooks, preloadPilotVoice, primePilotVoice, speakPilot } from './services/pilotVoice';
+import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
 import { parseSpokenClearance } from './services/speechCommand';
@@ -88,26 +89,6 @@ const App: React.FC = () => {
   const arcadeActiveRef = useRef(false);
   
   const incidentCooldowns = useRef<Map<string, number>>(new Map());
-
-  const playConflictBeep = useCallback(() => {
-    try {
-      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = 880;
-      gain.gain.value = 0.05;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.18);
-      setTimeout(() => void ctx.close(), 300);
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   const logSeq = useRef(1);
   const addLog = useCallback((text: string, source: CommSource = 'system') => {
@@ -342,30 +323,13 @@ const App: React.FC = () => {
   // --- Command Parser ---
   const handleCommand = (cmdRaw: string) => {
     primePilotVoice();
-    const parsed = parseCommand(cmdRaw, aircraft, selectedId);
-    if (parsed.kind === 'not_found') {
-      addLog(`TARGET ${parsed.callsign} NOT FOUND`, 'system');
-      return;
-    }
-
-    const target = aircraft.find((ac) => ac.id === parsed.aircraftId);
-    addLog(parsed.controllerEcho, 'controller');
-
-    if (target?.special === 'nordo') {
-      addLog('No reply (NORDO)', 'system');
-      return;
-    }
-
-    if (parsed.patch && parsed.aircraftId) {
-      const aircraftId = parsed.aircraftId;
-      const patch = parsed.patch;
-      setAircraft(prev => prev.map(ac => ac.id === aircraftId ? applyCommandPatch(ac, patch) : ac));
-    }
-    if (parsed.readback) {
-      addLog(parsed.readback, 'pilot');
-      speakPilot(parsed.readback, parsed.callsign);
-      trackEvent('Command Issued', { callsign: parsed.callsign, command: parsed.controllerEcho });
-    }
+    // State applies synchronously; speakPilot is fire-and-forget (never awaited).
+    const result = issueControllerCommand(aircraft, selectedId, cmdRaw, {
+      onLog: addLog,
+      onSpeak: speakPilot,
+      onTrack: (callsign, echo) => trackEvent('Command Issued', { callsign, command: echo }),
+    });
+    if (result.aircraft !== aircraft) setAircraft(result.aircraft);
   };
 
   const aircraftRef = useRef(aircraft);
@@ -373,17 +337,32 @@ const App: React.FC = () => {
   const handleCommandRef = useRef(handleCommand);
   handleCommandRef.current = handleCommand;
 
+  const spokenCommittedRef = useRef<string | null>(null);
   const handleSpokenTranscript = useCallback((text: string, isFinal: boolean) => {
     setLiveTranscript(text);
-    if (!isFinal || !text.trim()) return;
+    if (!text.trim()) return;
     const spoken = parseSpokenClearance(text, aircraftRef.current);
+    // Act on a complete parse as soon as interim text is good enough — don't wait
+    // for SpeechRecognition's final-result latency after the teacher releases PTT.
     if (!spoken.ok) {
+      if (!isFinal) return;
       const line = spoken.message || 'Say again';
       addLog(line, 'pilot');
       speakPilot(line, spoken.callsign || 'PILOT');
+      spokenCommittedRef.current = null;
       return;
     }
-    if (spoken.command) handleCommandRef.current(spoken.command);
+    if (!spoken.command) return;
+    const commitKey = spoken.command.toLowerCase();
+    if (spokenCommittedRef.current === commitKey) return;
+    spokenCommittedRef.current = commitKey;
+    handleCommandRef.current(spoken.command);
+    if (isFinal) {
+      // Allow the next distinct clearance after a final result settles.
+      window.setTimeout(() => {
+        if (spokenCommittedRef.current === commitKey) spokenCommittedRef.current = null;
+      }, 800);
+    }
   }, [addLog]);
 
   const handleSpeechError = useCallback((message: string) => {
@@ -547,19 +526,24 @@ const App: React.FC = () => {
                     if (!hasValidAlt) {
                         pts -= PENALTY_WRONG_ALT;
                         setStats(s => ({...s, wrongAlt: s.wrongAlt + 1}));
+                        playFailTone();
                         addLog(`${ac.callsign} WRONG ALT (${finalAlt}). -${PENALTY_WRONG_ALT}`);
                         handoffResult = "WRONG ALT";
+                    } else {
+                        playSuccessChime();
                     }
                     setScore(s => s + pts);
                 } else {
                     setScore(s => Math.max(0, s - PENALTY_WRONG_GATE));
                     setStats(s => ({...s, wrongGate: s.wrongGate + 1}));
+                    playFailTone();
                     addLog(`${ac.callsign} WRONG GATE (${enteredGate.label}). -${PENALTY_WRONG_GATE}`);
                     handoffResult = "WRONG GATE";
                 }
             } else {
                 addLog(`${ac.callsign} OFF COURSE. -${PENALTY_OFF_COURSE}`);
                 setScore(s => Math.max(0, s - PENALTY_OFF_COURSE));
+                playFailTone();
                 handoffResult = "OFF COURSE";
             }
         }
@@ -623,7 +607,7 @@ const App: React.FC = () => {
                             }));
                             if (playMode === 'expo') {
                               setConflictAlarm(true);
-                              playConflictBeep();
+                              playFailTone();
                               setScoreFlash('LOSS OF SEPARATION');
                               window.setTimeout(() => setConflictAlarm(false), 1800);
                             }
@@ -661,11 +645,15 @@ const App: React.FC = () => {
 
   // Preload Kokoro during menu idle — do not block first paint.
   useEffect(() => {
+    installVoiceDebugHooks();
     preloadPilotVoice();
   }, []);
 
   useEffect(() => {
-    const unlock = () => primePilotVoice();
+    const unlock = () => {
+      unlockSoundEffects();
+      primePilotVoice();
+    };
     window.addEventListener('pointerdown', unlock);
     return () => window.removeEventListener('pointerdown', unlock);
   }, []);
