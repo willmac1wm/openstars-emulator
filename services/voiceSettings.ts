@@ -5,6 +5,13 @@ export interface VoiceSettings {
   radioEffect: boolean;
   /** 0.8 – 1.25, passed to the neural model and to speechSynthesis */
   rate: number;
+  /**
+   * When false (default), readbacks always use instant Web Speech ("Fast voice").
+   * When true, use Kokoro neural voices if loaded (may be slower on Chromebooks).
+   */
+  naturalVoices: boolean;
+  /** Short Web Audio success/fail chimes (independent of pilot VOX). Default on. */
+  soundEffects: boolean;
 }
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
@@ -12,6 +19,8 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   volume: 0.9,
   radioEffect: true,
   rate: 1,
+  naturalVoices: false,
+  soundEffects: true,
 };
 
 const STORAGE_KEY = 'openstars_voice';
@@ -29,6 +38,8 @@ function sanitize(raw: Partial<VoiceSettings> | null): VoiceSettings {
     volume: clamp(typeof raw?.volume === 'number' ? raw.volume : DEFAULT_VOICE_SETTINGS.volume, 0, 1),
     radioEffect: raw?.radioEffect !== false,
     rate: clamp(typeof raw?.rate === 'number' ? raw.rate : DEFAULT_VOICE_SETTINGS.rate, 0.8, 1.25),
+    naturalVoices: raw?.naturalVoices === true,
+    soundEffects: raw?.soundEffects !== false,
   };
 }
 

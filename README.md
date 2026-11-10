@@ -23,7 +23,7 @@ Do not treat a pull request as a production deploy. Vercel may publish a preview
 4. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). Replay the same traffic with a seed: open `?seed=1234`, or type a seed on the menu. Defaults are `expo-booth`, `trainee-1`, `controller-1`, and `veteran-1`. The active seed is shown on the scope while you play.
 5. **Voice (PTT):** hold the big **HOLD TO TALK** button or **Spacebar**, speak a clearance (`American four twenty-one, turn left heading two seven zero`). Live transcript appears on screen; the pilot reads back with the existing TTS. Uses the free **Web Speech API** in Chrome/Edge. If the mic is missing or denied, tap or type still work. (In-browser Whisper was evaluated and deferred — see below.)
 6. **Tap-to-command:** select a plane, then use the heading wheel / altitude chips / speed chips. The pad shows JO 7110.65-style phraseology before you issue.
-7. Use **VOX**, volume, **RADIO**, and speech rate. Voice defaults to on. The Kokoro model (~92 MB) **preloads on the menu** with a progress bar (`Loading pilot voices… NN%` → `Pilot voices ready ✓`). Second visits use the browser cache. If voices are still loading, you can start anyway (basic Web Speech until neural is ready) or tap **Start with basic voice**. Teacher tip: open OpenSTARS once on each classroom computer before class to pre-download voices. Audio playback still needs a click/keypress (browser policy).
+7. Use **VOX**, volume, **RADIO**, **SFX**, and speech rate. Voice defaults to on. **Readbacks use Fast voice (Web Speech) by default** so audio starts within ~300 ms of each clearance — critical on Chromebooks. Optional **Natural voices (slower)** (VoiceBar toggle) uses Kokoro (~92 MB, preloads on the menu with a progress bar). After load, a warmup benchmark times synthesis; if it is too slow, status stays on Fast voice. Aircraft heading/altitude/speed still change immediately even if audio lags. **SFX** (default on) plays a short Web Audio rising chime on clean gate exits / Expo perfect handoffs and a softer tone on penalties — mixed quietly so it never blocks pilot readbacks. Audio playback needs a click/keypress (browser policy).
 8. Score by exiting the assigned gate at a legal altitude. Arcade flashes **Perfect handoff +1000** (pilot “good day”) and a red **CONFLICT** alarm on loss of separation. End-of-round card includes a short FAA careers pointer (`faa.gov/jobs`).
 
 No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, longer modes may ask Gemini for a scenario and fall back to the seeded offline traffic when that request fails. Expo always stays offline and seeded (localStorage high scores only — no accounts, no network beyond optional model files).
@@ -47,16 +47,6 @@ Pilot sims sell embodiment: stick, view, landing. ATC is delayed feedback and at
 - One clear job per aircraft: get *this* plane through *that* glowing gate
 
 Classroom mode keeps the fuller traffic count and typing. Expo arcade is the attract / walk-up path.
-
-## Vector to Final (new)
-
-Selectable from the main menu. Uses a deterministic fixed-timestep sim engine (`sim/`) with serializable actions (multiplayer/handoff foundation — networking not built yet).
-
-- ILS RWY 28 final on centerline, or VOR RWY 28 with FAC offset +5°
-- FAF, approach gate, extended centerline, range marks, wind (calm or from/speed)
-- Intercept legality and approach clearance phraseology per JO 7110.65BB Chg 3 (¶5-9-1, ¶5-9-2/TBL 5-9-1, ¶5-9-4, ¶4-8-1); speed limits ¶5-7-1; wake Categories A–I ¶5-5-4; citations in `sim/citations.ts`
-- PTT / typed / tap approach clearances; pilot readbacks via existing TTS
-- Seeded, key-free, offline
 
 ## Pilot voices
 
