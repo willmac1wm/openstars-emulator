@@ -67,6 +67,25 @@ describe('parseCommand', () => {
       .toBe('Climb and maintain one zero thousand five hundred, United one twenty-three');
   });
 
+  it('treats altitude digits as hundreds of feet', () => {
+    const low = aircraft({ callsign: 'UAL123', altitude: 50 });
+    const atSix = parseCommand('UAL123 A060', [low], null);
+    expect(atSix.patch?.targetAltitude).toBe(60);
+    expect(atSix.readback).toBe('Climb and maintain six thousand, United one twenty-three');
+
+    const atSeven = parseCommand('UAL123 A070', [aircraft({ callsign: 'UAL123', altitude: 60 })], null);
+    expect(atSeven.patch?.targetAltitude).toBe(70);
+    expect(atSeven.readback).toBe('Climb and maintain seven thousand, United one twenty-three');
+
+    const atTen = parseCommand('UAL123 A100', [aircraft({ callsign: 'UAL123', altitude: 70 })], null);
+    expect(atTen.patch?.targetAltitude).toBe(100);
+    expect(atTen.readback).toBe('Climb and maintain one zero thousand, United one twenty-three');
+
+    const atNineFive = parseCommand('UAL123 ALT 095', [aircraft({ callsign: 'UAL123', altitude: 100 })], null);
+    expect(atNineFive.patch?.targetAltitude).toBe(95);
+    expect(atNineFive.readback).toBe('Descend and maintain niner thousand five hundred, United one twenty-three');
+  });
+
   it('does not treat ALT as a heading', () => {
     const parsed = parseCommand('UAL123 ALT070', [ual], null);
     expect(parsed.patch?.targetHeading).toBeUndefined();

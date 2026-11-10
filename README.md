@@ -73,7 +73,7 @@ Examples below assume the aircraft is not already on that heading, altitude, or 
 | `AAL421 A060` (from above 6,000) | Descend and maintain six thousand, American four twenty-one |
 | `UAL123 A070` (already at 7,000) | Maintain seven thousand, United one twenty-three |
 | `UAL123 C110` | Climb and maintain one one thousand, United one twenty-three |
-| `UAL123 ALT105` | Climb and maintain one zero thousand five hundred, United one twenty-three |
+| `UAL123 ALT 095` (from 10,000) | Descend and maintain niner thousand five hundred, United one twenty-three |
 | `SWA890 S250` (from slower) | Increase speed to two five zero knots, Southwest eight ninety |
 | `SKW221 S180` (from faster) | Reduce speed to one eight zero knots, SkyWest two twenty-one |
 | `ASH310 SPD210` (already 210) | Maintain two one zero knots, Air Shuttle three ten |

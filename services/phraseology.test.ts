@@ -20,6 +20,8 @@ describe('phraseology', () => {
     expect(speakAltitudeHundreds(70)).toBe('seven thousand');
     expect(speakAltitudeHundreds(90)).toBe('niner thousand');
     expect(speakAltitudeHundreds(65)).toBe('six thousand five hundred');
+    expect(speakAltitudeHundreds(60)).toBe('six thousand');
+    expect(speakAltitudeHundreds(95)).toBe('niner thousand five hundred');
     expect(speakAltitudeHundreds(100)).toBe('one zero thousand');
     expect(speakAltitudeHundreds(105)).toBe('one zero thousand five hundred');
     expect(speakAltitudeHundreds(110)).toBe('one one thousand');
