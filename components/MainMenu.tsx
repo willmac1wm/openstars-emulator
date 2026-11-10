@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Play, Trophy, ChevronRight, Sparkles } from 'lucide-react';
 import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
+import { getVoiceRuntime, subscribeVoiceRuntime, useBasicVoiceNow, VoiceRuntime } from '../services/pilotVoice';
+import VoicePreloadBanner from './VoicePreloadBanner';
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
@@ -25,14 +27,31 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = nu
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
+  const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
+  const [startHint, setStartHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (urlSeed) setSeedInput(urlSeed);
   }, [urlSeed]);
 
+  useEffect(() => subscribeVoiceRuntime(() => setVoice(getVoiceRuntime())), []);
+
+  const voicesLoading = voice.phase === 'loading';
+
   const handleStart = (level: ScenarioDifficulty = difficulty) => {
+    if (voicesLoading) {
+      setStartHint('Voices still loading — start anyway? Readbacks use basic voice until neural is ready.');
+    } else {
+      setStartHint(null);
+    }
     const resolved = resolveSeedInput(seedInput || DEFAULT_SCENARIO_SEEDS[level], level);
     onStart({ difficulty: level, seedLabel: resolved.display });
+  };
+
+  const startWithBasic = (level: ScenarioDifficulty = difficulty) => {
+    useBasicVoiceNow();
+    setStartHint(null);
+    handleStart(level);
   };
 
   return (
@@ -49,14 +68,35 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = nu
             </div>
           </div>
 
+          <VoicePreloadBanner />
+
           <button
             data-testid="expo-start"
             onClick={() => handleStart('Expo')}
             className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-2xl md:text-3xl py-6 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center gap-1"
           >
             <span className="flex items-center gap-3"><Play fill="black" size={28} /> TRY THE SCOPE</span>
-            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">3-min arcade · voice · projector friendly</span>
+            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">
+              {voicesLoading
+                ? 'Voices still loading — start anyway?'
+                : '3-min arcade · voice · projector friendly'}
+            </span>
           </button>
+          {voicesLoading && (
+            <button
+              type="button"
+              data-testid="expo-start-basic"
+              onClick={() => startWithBasic('Expo')}
+              className="w-full border border-amber-700/60 text-amber-200 hover:bg-amber-950/40 font-bold py-3 rounded text-sm"
+            >
+              Start Expo with basic voice
+            </button>
+          )}
+          {startHint && (
+            <div data-testid="voice-start-hint" className="text-xs text-amber-200/90 bg-amber-950/30 border border-amber-800/40 rounded px-3 py-2">
+              {startHint}
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-3 items-center justify-between bg-gray-950 border border-gray-800 rounded p-3">
             <div className="flex items-center gap-2 text-sm">
@@ -114,10 +154,23 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, highScore, activeSeed = nu
             type="button"
             data-testid="start-selected"
             onClick={() => handleStart()}
-            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold text-xl py-4 rounded transition-all flex items-center justify-center gap-2"
+            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold text-xl rounded transition-all flex flex-col items-center justify-center gap-1 py-4"
           >
-            <Play size={18} /> START {difficulty.toUpperCase()}
+            <span className="flex items-center gap-2"><Play size={18} /> START {difficulty.toUpperCase()}</span>
+            {voicesLoading && (
+              <span className="text-[11px] font-normal text-green-100/80">Voices still loading — start anyway?</span>
+            )}
           </button>
+          {voicesLoading && (
+            <button
+              type="button"
+              data-testid="start-selected-basic"
+              onClick={() => startWithBasic()}
+              className="w-full border border-amber-700/60 text-amber-200 hover:bg-amber-950/40 font-bold py-3 rounded text-sm"
+            >
+              Start with basic voice
+            </button>
+          )}
         </div>
 
         <aside className="bg-gray-950 border border-gray-800 rounded p-4 md:p-5 space-y-4 text-gray-300">

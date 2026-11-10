@@ -25,7 +25,7 @@ const VoiceBar: React.FC = () => {
     : engine === 'loading'
       ? `LOADING ${Math.round(runtime.progress * 100)}%`
       : engine === 'kokoro'
-        ? 'NEURAL'
+        ? (runtime.fromCache ? 'NEURAL·CACHE' : 'NEURAL')
         : engine === 'webspeech'
           ? 'BROWSER'
           : 'VOICE ON';
