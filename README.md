@@ -18,25 +18,35 @@ Do not treat a pull request as a production deploy. Vercel may publish a preview
 ## Classroom and exposition demo
 
 1. Open the site (or `npm run dev` locally). No login.
-2. For a booth or first-time kid, press **Try the scope** (Expo Hot Seat): three aircraft, ~90 seconds, command chips, pulsing exit gate, score flash.
-3. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). Replay the same traffic with a seed: open `?seed=1234`, or type a seed on the menu. Defaults are `expo-booth`, `trainee-1`, `controller-1`, and `veteran-1`. The active seed is shown on the scope while you play.
-4. Select an aircraft or type its callsign, then a clearance. Example: `AAL421 TL270 A060`. In Expo mode you can tap **Turn left / Turn right / Set exit alt / Speed 210** instead of typing.
-5. The pilot readback shows in amber in the comm log (an `aria-live` region) and is spoken out loud.
-6. Use **VOX**, volume, **RADIO**, and speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the model download begins on the first tap.
-7. Speed up with the rate buttons. Expo starts at 4x. Score by exiting the assigned gate at a legal altitude.
+2. For a booth or first-time kid, press **Try the scope** (Expo Arcade): a **3-minute** shift with escalating waves, one curveball (medevac / NORDO / go-around), push-to-talk voice, tap-to-command, and a local high-score board.
+3. After ~60s idle on the menu, **attract mode** auto-plays the “Press to be an Air Traffic Controller” banner; any key or tap starts a round. After the score screen the booth returns to attract.
+4. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). Replay the same traffic with a seed: open `?seed=1234`, or type a seed on the menu. Defaults are `expo-booth`, `trainee-1`, `controller-1`, and `veteran-1`. The active seed is shown on the scope while you play.
+5. **Voice (PTT):** hold the big **HOLD TO TALK** button or **Spacebar**, speak a clearance (`American four twenty-one, turn left heading two seven zero`). Live transcript appears on screen; the pilot reads back with the existing TTS. Uses the free **Web Speech API** in Chrome/Edge. If the mic is missing or denied, tap or type still work. (In-browser Whisper was evaluated and deferred — see below.)
+6. **Tap-to-command:** select a plane, then use the heading wheel / altitude chips / speed chips. The pad shows JO 7110.65-style phraseology before you issue.
+7. Use **VOX**, volume, **RADIO**, and speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the Kokoro model download begins on the first tap.
+8. Score by exiting the assigned gate at a legal altitude. Arcade flashes **Perfect handoff +1000** (pilot “good day”) and a red **CONFLICT** alarm on loss of separation. End-of-round card includes a short FAA careers pointer (`faa.gov/jobs`).
 
-No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, longer modes may ask Gemini for a scenario and fall back to the seeded offline traffic when that request fails. Expo always stays offline and seeded.
+No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, longer modes may ask Gemini for a scenario and fall back to the seeded offline traffic when that request fails. Expo always stays offline and seeded (localStorage high scores only — no accounts, no network beyond optional model files).
+
+### Voice recognition notes
+
+| Engine | Status | Notes |
+| --- | --- | --- |
+| Web Speech API (`SpeechRecognition`) | **Primary** | Free, low latency, Chrome/Edge. Needs mic permission. Safari limited; Firefox usually unavailable. |
+| Whisper via transformers.js (`whisper-tiny` / `base.en`) | **Deferred** | Another ~40–150MB on top of Kokoro (~92MB) plus WASM warm-up is too heavy for a walk-up booth laptop. Tap + type remain the offline fallback. |
+
+Recognition accuracy depends on the browser cloud STT behind Web Speech: speak slowly, use telephony callsigns and digit groups (`niner`, `two seven zero`, `six thousand`). Fuzzy matching maps spoken airlines to aircraft on scope; unknown callers hear **station calling, say again**.
 
 ### Why ATC needs a different entertainment shape than pilot sims
 
 Pilot sims sell embodiment: stick, view, landing. ATC is delayed feedback and attention splitting, so a pure procedure trainer feels slow on a booth. OpenSTARS leans into **radar theater**:
 
-- Short hot-seat runs instead of hour-long sectors
-- Spectacle: pilot voices, pulsing target gates, big score flashes
-- Progressive control: chips first, typed phraseology later
+- Short arcade shifts instead of hour-long sectors
+- Spectacle: PTT voice, pilot voices, pulsing target gates, big score flashes, conflict alarm
+- Progressive control: voice → tap phraseology → typed command line
 - One clear job per aircraft: get *this* plane through *that* glowing gate
 
-Classroom mode keeps the fuller traffic count and typing. Expo mode is the attract / walk-up path.
+Classroom mode keeps the fuller traffic count and typing. Expo arcade is the attract / walk-up path.
 
 ## Pilot voices
 
