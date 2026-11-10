@@ -16,7 +16,11 @@ const getStartPos = (deg: number, dist: number) => {
     };
 };
 
-export const generateScenario = async (difficulty: string): Promise<GameScenario> => {
+export const generateScenario = async (difficulty: string, seedLabel?: string): Promise<GameScenario> => {
+    if (difficulty === 'Expo' || !apiKey) {
+      return buildLocalScenario(difficulty, seedLabel);
+    }
+
     let countRange = "12-15"; // Default/Hard target (~15 planes total for waves)
     let speedRange = "210-250";
     
@@ -36,8 +40,6 @@ export const generateScenario = async (difficulty: string): Promise<GameScenario
     Speeds: ${speedRange} knots.
     Do not specify coordinates, just flight details.
     `;
-
-  if (!apiKey) return buildLocalScenario(difficulty);
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -182,17 +184,18 @@ export const generateScenario = async (difficulty: string): Promise<GameScenario
         });
     });
 
-    if (generatedAircraft.length === 0) return buildLocalScenario(difficulty);
+    if (generatedAircraft.length === 0) return buildLocalScenario(difficulty, seedLabel);
 
     return {
       name: "Sector Control",
       difficulty: difficulty as GameScenario['difficulty'],
       description: "Guide aircraft to their assigned exit gates. Avoid collisions.",
-      aircraft: generatedAircraft
+      aircraft: generatedAircraft,
+      mode: 'standard',
     };
 
   } catch (error) {
     console.error("Error generating scenario:", error);
-    return buildLocalScenario(difficulty);
+    return buildLocalScenario(difficulty, seedLabel);
   }
 };

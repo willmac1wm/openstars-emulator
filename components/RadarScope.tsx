@@ -20,13 +20,15 @@ interface RadarScopeProps {
   onSelectAircraft: (id: string) => void;
   scanAngle: number; // For the sweeping line effect
   showPrimaryData: boolean; // Global data block toggle state
+  highlightGateId?: string | null;
 }
 
-const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, scanAngle, showPrimaryData }) => {
+const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, scanAngle, showPrimaryData, highlightGateId = null }) => {
   
   // Render Gates (Exit Lines)
   const gateLines = useMemo(() => {
     return GATES.map((gate) => {
+        const active = highlightGateId === gate.id;
         // Angles to radians
         const radStart = (gate.startAngle - 90) * (Math.PI / 180);
         const radEnd = (gate.endAngle - 90) * (Math.PI / 180);
@@ -48,42 +50,45 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
         const y1_out = y1 + dirY * extLength;
         const x2_out = x2 + dirX * extLength;
         const y2_out = y2 + dirY * extLength;
+        const stroke = active ? COLOR_PRIMARY : COLOR_SECONDARY;
 
         return (
-            <g key={`gate-${gate.id}`}>
+            <g key={`gate-${gate.id}`} data-gate={gate.id} data-active={active ? 'true' : 'false'}>
                 {/* Parallel Corridor Lines */}
                 <line 
                     x1={x1} y1={y1} 
                     x2={x1_out} y2={y1_out} 
-                    stroke={COLOR_SECONDARY} 
-                    strokeWidth="2" 
-                    opacity="0.7"
+                    stroke={stroke} 
+                    strokeWidth={active ? 3 : 2} 
+                    opacity={active ? 0.95 : 0.7}
+                    className={active ? 'gate-target' : undefined}
                 />
                 <line 
                     x1={x2} y1={y2} 
                     x2={x2_out} y2={y2_out} 
-                    stroke={COLOR_SECONDARY} 
-                    strokeWidth="2" 
-                    opacity="0.7"
+                    stroke={stroke} 
+                    strokeWidth={active ? 3 : 2} 
+                    opacity={active ? 0.95 : 0.7}
+                    className={active ? 'gate-target' : undefined}
                 />
 
                 {/* The Gate Threshold / Boundary (Broken, Dimmer) */}
                 <line 
                     x1={x1} y1={y1} 
                     x2={x2} y2={y2} 
-                    stroke={COLOR_SECONDARY} 
-                    strokeWidth="2" 
+                    stroke={stroke} 
+                    strokeWidth={active ? 3 : 2} 
                     strokeDasharray="6 6"
-                    opacity="0.3"
+                    opacity={active ? 0.7 : 0.3}
                 />
 
                 {/* Gate Label - MOVED TO OUTER END to avoid overlap with Fix */}
                 <text 
                     x={(x1_out+x2_out)/2 + (dirX * 15)} 
                     y={(y1_out+y2_out)/2 + (dirY * 15)} 
-                    fill={COLOR_SECONDARY} 
-                    fontSize="12" 
-                    opacity="0.6"
+                    fill={stroke} 
+                    fontSize={active ? 14 : 12} 
+                    opacity={active ? 1 : 0.6}
                     textAnchor="middle"
                     alignmentBaseline="middle"
                     fontWeight="bold"
@@ -94,7 +99,7 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
             </g>
         );
     });
-  }, []);
+  }, [highlightGateId]);
 
   // Realistic STARS-like square edge compass markings
   const compassTicks = useMemo(() => {

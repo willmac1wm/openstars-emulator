@@ -48,11 +48,20 @@ export interface Aircraft {
   handoffResult?: string; // Text to display after handoff (e.g. "CLEAN", "WRONG ALT")
 }
 
+export type ScenarioDifficulty = 'Expo' | 'Easy' | 'Medium' | 'Hard';
+
 export interface GameScenario {
   name: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
+  difficulty: ScenarioDifficulty;
   description: string;
   aircraft: Aircraft[];
+  seedLabel?: string;
+  mode?: 'expo' | 'standard';
+}
+
+export interface StartOptions {
+  difficulty: ScenarioDifficulty | string;
+  seedLabel?: string;
 }
 
 export enum SimulationState {

@@ -2,7 +2,7 @@
 
 OpenSTARS is a free, browser-based STARS-style ATC radar game. A controller vectors aircraft to exit gates, keeps them separated, and hears each aircraft read the clearance back.
 
-The free web version is meant for a classroom or school demo. It runs with **no API key, no account, and no analytics**. Scenarios are built in the browser. Pilot voices are synthesized on the device.
+The free web version is meant for classrooms **and** walk-up expositions. It runs with **no API key, no account, and no analytics**. Scenarios are built in the browser. Pilot voices are synthesized on the device.
 
 ## Which site this repo deploys to
 
@@ -15,18 +15,28 @@ That is the GitHub repository homepage, and it is the Vercel project (`openstars
 
 Do not treat a pull request as a production deploy. Vercel may publish a preview URL for the PR; production stays on the link above until someone promotes a deployment.
 
-## Classroom demo
+## Classroom and exposition demo
 
-1. Open the site (or `npm run dev` locally).
-2. Choose **Play as guest**. The email box is optional and does nothing unless an operator has set `VITE_POSTHOG_KEY`. Leave it blank.
-3. Pick **Trainee** (4 aircraft), **Controller** (8), or **Veteran** (12).
-4. Press **Initialize radar**.
-5. Select an aircraft or type its callsign, then a clearance. Example: `AAL421 TL270 A060`.
-6. The pilot readback shows in amber in the comm log (the log is an `aria-live` region, so a screen reader announces it) and is spoken out loud.
-7. Use the **VOX** button for voice on/off, the first slider for volume, **RADIO** for a light band-pass radio effect, and the second slider for speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the model download begins on the first tap, not during the initial page load.
-8. Speed up the sim with the rate buttons while aircraft cross the sector. Score points by exiting the assigned gate at a legal altitude without clipping the gate edges.
+1. Open the site (or `npm run dev` locally). No login.
+2. For a booth or first-time kid, press **Try the scope** (Expo Hot Seat): three aircraft, ~90 seconds, command chips, pulsing exit gate, score flash.
+3. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). The same seed replays the same traffic every time (`trainee-1`, `controller-1`, `veteran-1`, `expo-booth`).
+4. Select an aircraft or type its callsign, then a clearance. Example: `AAL421 TL270 A060`. In Expo mode you can tap **Turn left / Turn right / Set exit alt / Speed 210** instead of typing.
+5. The pilot readback shows in amber in the comm log (an `aria-live` region) and is spoken out loud.
+6. Use **VOX**, volume, **RADIO**, and speech rate. Voice defaults to on. Browsers only start audio after a click or keypress, so the model download begins on the first tap.
+7. Speed up with the rate buttons. Expo starts at 4x. Score by exiting the assigned gate at a legal altitude.
 
-No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, the app may ask Gemini for a scenario and falls back to the built-in traffic when that request fails.
+No Gemini key is required. If `VITE_GEMINI_API_KEY` is set, longer modes may ask Gemini for a scenario and fall back to the seeded offline traffic when that request fails. Expo always stays offline and seeded.
+
+### Why ATC needs a different entertainment shape than pilot sims
+
+Pilot sims sell embodiment: stick, view, landing. ATC is delayed feedback and attention splitting, so a pure procedure trainer feels slow on a booth. OpenSTARS leans into **radar theater**:
+
+- Short hot-seat runs instead of hour-long sectors
+- Spectacle: pilot voices, pulsing target gates, big score flashes
+- Progressive control: chips first, typed phraseology later
+- One clear job per aircraft: get *this* plane through *that* glowing gate
+
+Classroom mode keeps the fuller traffic count and typing. Expo mode is the attract / walk-up path.
 
 ## Pilot voices
 
