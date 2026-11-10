@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Aircraft, SimulationState } from '../types';
+import { Aircraft, CommMessage, SimulationState } from '../types';
 import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keyboard as KeyboardIcon } from 'lucide-react';
 import SoftKeyboard from './SoftKeyboard';
+import VoiceBar from './VoiceBar';
 
 interface ControlPanelProps {
   selectedAircraft: Aircraft | null;
   onCommand: (cmd: string) => void;
-  messages: string[];
+  messages: CommMessage[];
   score: number;
   gameActive: boolean; // True if RUNNING
   gameState: SimulationState;
@@ -118,7 +119,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="bg-black/80 px-2 py-1 rounded border border-gray-700 font-mono text-green-400 font-bold text-sm shadow-[0_0_10px_rgba(20,241,149,0.1)]">
             {zuluTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC', hour12: false })}Z
           </div>
-          <span className="text-white text-sm font-bold">SCORE: {score}</span>
+          <span data-testid="score" className="text-white text-sm font-bold">SCORE: {score}</span>
           <button onClick={handleShare} className="text-[10px] flex items-center gap-1 bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 text-gray-300">
             {copied ? <Check size={10} className="text-green-500" /> : <Share2 size={10} />}
           </button>
@@ -162,6 +163,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </>
           )}
         </div>
+        <VoiceBar />
       </div>
 
       {/* 3. INPUT BAR (Middle) */}
@@ -173,6 +175,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
             <input
               ref={inputRef}
+              data-testid="command-input"
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -201,11 +204,27 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="absolute top-0 left-0 right-0 bg-gray-800 text-[9px] px-1 text-gray-500 z-10 flex justify-between">
             <span>COMM 1</span><span>124.500</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-1 pt-4 space-y-1 font-mono text-[10px] lg:text-xs leading-tight">
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex items-start ${msg.startsWith('>') ? 'text-cyan-500' : 'text-green-400'}`}>
+          <div
+            data-testid="comm-log"
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-label="Communications log"
+            className="flex-1 overflow-y-auto p-1 pt-4 space-y-1 font-mono text-[10px] lg:text-xs leading-tight"
+          >
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                data-source={msg.source}
+                className={`flex items-start ${
+                  msg.source === 'controller'
+                    ? 'text-cyan-400'
+                    : msg.source === 'pilot'
+                      ? 'text-amber-200 font-semibold'
+                      : 'text-green-400'
+                }`}
+              >
                 <div className="whitespace-pre-wrap break-words flex-1">
-                  {msg.startsWith('>') ? msg.substring(2) : msg.trim()}
+                  {msg.source === 'controller' ? `> ${msg.text}` : msg.source === 'pilot' ? msg.text : msg.text.trim()}
                 </div>
               </div>
             ))}
