@@ -3,18 +3,24 @@ import { perfForType } from '../performance';
 import { nextRng, seedFromLabel } from '../rng';
 import { DEFAULT_AIRSPACE_NS } from '../sectors';
 import type { ApproachKind, SimAircraft, SimState, WindState } from '../types';
-import { pointAlongFinal } from '../geometry';
+import { nmToPx, pointAlongFinal } from '../geometry';
+import { approachGateNmFromThreshold } from '../rules/intercept';
 import { AlertLevel } from '../../types';
 
 const FLEET = ['A388', 'B744', 'B77W', 'A333', 'B752', 'B738', 'A320', 'E75L', 'CRJ9', 'BE20'] as const;
 
-function makeTraffic(
+/**
+ * Spawn every aircraft outside the approach gate (and well clear of the FAF),
+ * on a base/downwind offset — never established or on-final at t=0.
+ */
+export function makeTraffic(
   seed: number,
   count: number,
   approachKind: ApproachKind,
 ): { aircraft: SimAircraft[]; rng: number } {
   let rng = seed;
   const proc = buildApproach(approachKind);
+  const gateNm = approachGateNmFromThreshold(proc);
   const aircraft: SimAircraft[] = [];
   const callsigns = ['AAL421', 'UAL123', 'DAL456', 'SWA890', 'JBU512', 'ASA188', 'FFT610', 'NKS204'];
 
@@ -23,9 +29,12 @@ function makeTraffic(
     const type = FLEET[Math.floor(t.value * FLEET.length)];
     const perf = perfForType(type);
     const side = nextRng(rng); rng = side.state;
-    const nmOut = 14 + i * 3 + side.value * 2;
+    // Along-track: ≥ gate+5 NM, staggered outbound (≈12–28 NM for std gate=7).
+    const nmOut = gateNm + 5 + i * 3.2 + side.value * 4;
     const base = pointAlongFinal(proc, nmOut);
-    const lateral = (side.value - 0.5) * 80; // px offset left/right of final
+    // Lateral 8–15 NM off the FAC so nothing starts on the localizer.
+    const lateralNm = 8 + side.value * 7;
+    const lateral = nmToPx(lateralNm) * (side.value >= 0.5 ? 1 : -1);
     const outbound = ((proc.finalCourseDeg + 180) % 360);
     const perp = ((outbound + 90) % 360);
     const pr = ((perp - 90) * Math.PI) / 180;

@@ -14,6 +14,7 @@ import {
   NM_3_PX
 } from '../constants';
 import DataBlock from './DataBlock';
+import CompassRose from './CompassRose';
 
 interface RadarScopeProps {
   aircraft: Aircraft[];
@@ -101,94 +102,6 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
     });
   }, [highlightGateId]);
 
-  // Realistic STARS-like square edge compass markings
-  const compassTicks = useMemo(() => {
-    const ticks = [];
-    const center = MAP_SIZE / 2;
-    // Removed padding so ticks touch the absolute edge
-    const padding = 0; 
-    const size = MAP_SIZE - (padding * 2);
-    const origin = padding;
-    const max = MAP_SIZE - padding;
-    
-    for (let deg = 0; deg < 360; deg += 10) {
-        if (deg % 10 !== 0) continue; 
-
-        const rad = (deg - 90) * (Math.PI / 180); 
-        const dx = Math.sin(deg * (Math.PI / 180));
-        const dy = -Math.cos(deg * (Math.PI / 180));
-        
-        let t = Infinity;
-        
-        // Calculate intersection with the square bounds (origin to max)
-        if (dx > 0) { const tR = (max - center) / dx; if (tR < t) t = tR; }
-        if (dx < 0) { const tL = (origin - center) / dx; if (tL < t) t = tL; }
-        if (dy > 0) { const tB = (max - center) / dy; if (tB < t) t = tB; }
-        if (dy < 0) { const tT = (origin - center) / dy; if (tT < t) t = tT; }
-
-        const xEdge = center + dx * t;
-        const yEdge = center + dy * t;
-        
-        const tickLen = 12;
-        let x1 = xEdge, y1 = yEdge, x2 = xEdge, y2 = yEdge;
-        
-        const isRight = Math.abs(xEdge - max) < 1;
-        const isLeft = Math.abs(xEdge - origin) < 1;
-        const isBottom = Math.abs(yEdge - max) < 1;
-        const isTop = Math.abs(yEdge - origin) < 1;
-
-        // Draw tick inwards from edge
-        if (isRight) x2 = xEdge - tickLen;
-        else if (isLeft) x2 = xEdge + tickLen;
-        if (isBottom) y2 = yEdge - tickLen;
-        else if (isTop) y2 = yEdge + tickLen;
-
-        if (!isRight && !isLeft && !isBottom && !isTop) {
-             x2 = center + dx * (t - tickLen);
-             y2 = center + dy * (t - tickLen);
-        }
-
-        ticks.push(
-            <line 
-              key={`tick-${deg}`} 
-              x1={x1} y1={y1} 
-              x2={x2} y2={y2} 
-              stroke={COLOR_SECONDARY} 
-              strokeWidth="2" 
-            />
-        );
-
-        const textOffset = 28;
-        let tx = xEdge, ty = yEdge;
-        if (isRight) tx -= textOffset;
-        else if (isLeft) tx += textOffset;
-        if (isBottom) ty -= textOffset;
-        else if (isTop) ty += textOffset;
-        
-        if (deg % 90 === 0) {
-            if (deg === 45) { tx -= 10; ty += 10; }
-        }
-
-        const label = deg === 0 ? "360" : deg.toString().padStart(3, '0');
-
-        ticks.push(
-            <text
-                key={`lbl-${deg}`}
-                x={tx} y={ty}
-                fill={COLOR_SECONDARY}
-                fontSize="14"
-                fontWeight="bold"
-                fontFamily="monospace"
-                textAnchor="middle"
-                alignmentBaseline="middle"
-            >
-                {label}
-            </text>
-        );
-    }
-    return ticks;
-  }, []);
-
   // Calculate sweep line coordinates
   const cx = MAP_SIZE / 2;
   const cy = MAP_SIZE / 2;
@@ -207,7 +120,7 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
       <circle cx={cx} cy={cy} r={200} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
       <circle cx={cx} cy={cy} r={300} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
       
-      {compassTicks}
+      <CompassRose />
 
       {/* Map Layers */}
       <g id="map-layer">
