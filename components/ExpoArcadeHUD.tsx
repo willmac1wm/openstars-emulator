@@ -12,6 +12,8 @@ interface ExpoArcadeHUDProps {
   onSpeechError: (message: string) => void;
   onIssue: (command: string) => void;
   onFullscreen: () => void;
+  /** Guided how-to-play — hide the arcade countdown. */
+  tutorial?: boolean;
 }
 
 function formatClock(ms: number): string {
@@ -30,21 +32,25 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
   onSpeechError,
   onIssue,
   onFullscreen,
+  tutorial = false,
 }) => {
   return (
     <div
       className="w-full h-full min-h-0 flex flex-col gap-1.5"
       data-testid="expo-arcade-hud"
+      data-tutorial={tutorial ? '1' : undefined}
     >
       <div className="flex items-center gap-1.5 shrink-0">
         <div
           className={`font-mono text-lg font-bold px-2 py-0 rounded border ${
-            remainingMs < 30000
-              ? 'text-red-400 border-red-700'
-              : 'text-green-300 border-green-800'
+            tutorial
+              ? 'text-cyan-300 border-cyan-800'
+              : remainingMs < 30000
+                ? 'text-red-400 border-red-700'
+                : 'text-green-300 border-green-800'
           }`}
         >
-          {formatClock(remainingMs)}
+          {tutorial ? 'HOW TO PLAY' : formatClock(remainingMs)}
         </div>
         {banner && (
           <div className="flex-1 min-w-0 truncate bg-amber-500/20 border border-amber-400 text-amber-100 text-[10px] font-bold px-1.5 py-0.5 rounded">
@@ -71,7 +77,7 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         aria-live="polite"
         title={liveTranscript || undefined}
       >
-        {liveTranscript || 'Hold PTT and speak…'}
+        {liveTranscript || (tutorial ? 'Instructor captions appear below…' : 'Hold PTT and speak…')}
       </div>
 
       <TapCommandPad aircraft={selected} onIssue={onIssue} />

@@ -243,6 +243,7 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
           <g 
             key={ac.id} 
             data-callsign={ac.callsign}
+            data-testid={`aircraft-${ac.callsign}`}
             data-status={ac.status}
             data-heading={ac.heading}
             transform={`translate(${ac.x}, ${ac.y})`}

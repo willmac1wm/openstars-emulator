@@ -40,15 +40,23 @@ describe('tutorial state machine', () => {
     expect(state.phase).toBe('hint');
     expect(state.hintVisible).toBe(true);
     state = reduceTutorial(state, { type: 'SELECT', callsign: 'AAL421' });
-    expect(currentStep(state)?.id).toBe('heading-demo');
+    expect(currentStep(state)?.id).toBe('dial-intro');
   });
 
-  it('accepts matching heading command', () => {
+  it('accepts dial-issued heading (shortest TR270)', () => {
     const idx = TUTORIAL_STEPS.findIndex((s) => s.id === 'heading-you');
     let state = reduceTutorial(initialTutorialState(), { type: 'START' });
     state = { ...state, index: idx, phase: 'waiting', hintVisible: false, completed: false, skipped: false };
-    state = reduceTutorial(state, { type: 'COMMAND', raw: 'AAL421 H270' });
+    state = reduceTutorial(state, { type: 'COMMAND', raw: 'AAL421 TR270' });
     expect(currentStep(state)?.id).toBe('altitude-demo');
+  });
+
+  it('accepts altitude chip A080 after demo', () => {
+    const idx = TUTORIAL_STEPS.findIndex((s) => s.id === 'altitude-you');
+    let state = reduceTutorial(initialTutorialState(), { type: 'START' });
+    state = { ...state, index: idx, phase: 'waiting', hintVisible: false, completed: false, skipped: false };
+    state = reduceTutorial(state, { type: 'COMMAND', raw: 'AAL421 A080' });
+    expect(currentStep(state)?.id).toBe('speed-demo');
   });
 
   it('shows idle hint after timeout while waiting', () => {
@@ -58,6 +66,14 @@ describe('tutorial state machine', () => {
     state = reduceTutorial(state, { type: 'IDLE_TIMEOUT' });
     expect(state.phase).toBe('hint');
     expect(state.hintVisible).toBe(true);
+  });
+
+  it('includes dial-intro before heading practice', () => {
+    const dial = TUTORIAL_STEPS.findIndex((s) => s.id === 'dial-intro');
+    const heading = TUTORIAL_STEPS.findIndex((s) => s.id === 'heading-you');
+    expect(dial).toBeGreaterThan(-1);
+    expect(dial).toBeLessThan(heading);
+    expect(TUTORIAL_STEPS[heading].expect?.kind === 'command' && TUTORIAL_STEPS[heading].expect.hint).toMatch(/dial|ISSUE/i);
   });
 
   it('SKIP marks completed skipped', () => {
