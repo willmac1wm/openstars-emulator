@@ -6,6 +6,7 @@ import {
   registerVoiceServiceWorker,
   requestPersistentStorage,
 } from './voiceAssets';
+import { notifyPilotSpeechActive } from './soundEffects';
 // Deep package exports hide these files. Importing the installed paths lets Vite
 // emit them as same-origin assets instead of fetching the runtime from a CDN.
 import ortWasm from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
@@ -261,6 +262,8 @@ export function speakPilot(text: string, callsign: string) {
   if (!text || !getVoiceSettings().enabled) return;
   unlockAudio();
   preloadPilotVoice();
+  // Duck STARS CA beep under readbacks (modest gain already; this ducks further).
+  notifyPilotSpeechActive(true);
 
   const settings = getVoiceSettings();
   const wantNatural = settings.naturalVoices && !forceBasic;
@@ -268,7 +271,7 @@ export function speakPilot(text: string, callsign: string) {
   // Instant path — classroom default and any time neural isn't opted-in / ready.
   if (!wantNatural || useBrowser || !kokoro || runtime.phase !== 'ready') {
     void ensureEngine();
-    void speakBrowser(text, callsign, settings);
+    void speakBrowser(text, callsign, settings).finally(() => notifyPilotSpeechActive(false));
     return;
   }
 
@@ -665,7 +668,11 @@ async function drain() {
     }
   } finally {
     draining = false;
-    if (queue.length && getVoiceSettings().enabled) void drain();
+    if (queue.length && getVoiceSettings().enabled) {
+      void drain();
+    } else {
+      notifyPilotSpeechActive(false);
+    }
   }
 }
 

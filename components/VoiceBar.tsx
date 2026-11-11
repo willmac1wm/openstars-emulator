@@ -73,6 +73,18 @@ const VoiceBar: React.FC = () => {
       >
         SFX
       </button>
+      <button
+        type="button"
+        data-testid="conflict-alert-toggle"
+        title="STARS-like Conflict Alert beep while a loss of separation is active. Default on. Muted when SFX is off."
+        aria-pressed={settings.conflictAlertSound}
+        onClick={() => updateVoiceSettings({ conflictAlertSound: !settings.conflictAlertSound })}
+        className={`px-1.5 py-0.5 rounded border ${
+          settings.conflictAlertSound ? 'border-red-600 text-red-200' : 'border-gray-700 text-gray-500'
+        }`}
+      >
+        CA
+      </button>
       <label className="flex items-center gap-1">
         <span className="sr-only">Voice volume</span>
         <input

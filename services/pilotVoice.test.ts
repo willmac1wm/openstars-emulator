@@ -15,7 +15,7 @@ describe('pilot voice preload helpers', () => {
   beforeEach(() => {
     __resetPilotVoiceForTests();
     updateVoiceSettings({
-      enabled: true, volume: 1, rate: 1, radioEffect: false, naturalVoices: false, soundEffects: true,
+      enabled: true, volume: 1, rate: 1, radioEffect: false, naturalVoices: false, soundEffects: true, conflictAlertSound: true,
     });
   });
 

@@ -23,7 +23,12 @@ import { trackEvent, identifyUser } from './services/analytics';
 import { issueControllerCommand } from './services/commandIssue';
 import { ENABLE_VECTOR_TO_FINAL } from './services/features';
 import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
-import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
+import {
+  playFailTone,
+  playSuccessChime,
+  setConflictAlertActive,
+  unlockSoundEffects,
+} from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
 import {
@@ -247,6 +252,7 @@ const App: React.FC = () => {
     setLiveTranscript('');
     setShowArcadeSummary(false);
     setConflictAlarm(false);
+    setConflictAlertActive(false);
     setGameState(SimulationState.MENU);
     setAircraft([]);
     setMessages([{ id: 1, text: INITIAL_INSTRUCTION, source: 'system' }]);
@@ -291,6 +297,7 @@ const App: React.FC = () => {
     setArcadeBanner(null);
     setLiveTranscript('');
     setConflictAlarm(false);
+    setConflictAlertActive(false);
     setArcadeEndsAt(null);
     setArcadeRemainingMs(ARCADE_DURATION_MS);
     setTimeScale(2);
@@ -325,6 +332,7 @@ const App: React.FC = () => {
     setArcadeBanner('SHIFT OPEN — clear the gates. Hold PTT to talk.');
     setLiveTranscript('');
     setConflictAlarm(false);
+    setConflictAlertActive(false);
     setTimeScale(6);
     identifyUser('guest-arcade');
     const firstId = scenario.aircraft[0]?.id ?? null;
@@ -691,10 +699,8 @@ const App: React.FC = () => {
                                 }]
                             }));
                             if (playMode === 'expo') {
-                              setConflictAlarm(true);
-                              playFailTone();
                               setScoreFlash('LOSS OF SEPARATION');
-                              window.setTimeout(() => setConflictAlarm(false), 1800);
+                              window.setTimeout(() => setScoreFlash(null), 1800);
                             }
                         }
                     } else {
@@ -710,6 +716,13 @@ const App: React.FC = () => {
     }
 
     if (separationBust) setScore(s => Math.max(0, s - PENALTY_SEPARATION));
+
+    // Drive STARS CA aural + scope border from live CRITICAL state (any conflict).
+    const hasCritical = newAircraft.some(
+      (ac) => ac.status === 'ACTIVE' && ac.alertLevel === AlertLevel.CRITICAL,
+    );
+    setConflictAlarm(hasCritical);
+    setConflictAlertActive(hasCritical);
 
     return newAircraft;
   };

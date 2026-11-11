@@ -12,6 +12,11 @@ export interface VoiceSettings {
   naturalVoices: boolean;
   /** Short Web Audio success/fail chimes (independent of pilot VOX). Default on. */
   soundEffects: boolean;
+  /**
+   * Repeating STARS-like Conflict Alert (CA) beep while a loss of separation is active.
+   * Default on. Master SFX off also mutes CA.
+   */
+  conflictAlertSound: boolean;
 }
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
@@ -21,6 +26,7 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   rate: 1,
   naturalVoices: false,
   soundEffects: true,
+  conflictAlertSound: true,
 };
 
 const STORAGE_KEY = 'openstars_voice';
@@ -40,6 +46,7 @@ function sanitize(raw: Partial<VoiceSettings> | null): VoiceSettings {
     rate: clamp(typeof raw?.rate === 'number' ? raw.rate : DEFAULT_VOICE_SETTINGS.rate, 0.8, 1.25),
     naturalVoices: raw?.naturalVoices === true,
     soundEffects: raw?.soundEffects !== false,
+    conflictAlertSound: raw?.conflictAlertSound !== false,
   };
 }
 
