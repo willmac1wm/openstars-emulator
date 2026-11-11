@@ -4,7 +4,7 @@ import {
 
 export type TutorialHighlight =
   | { kind: 'aircraft'; callsign: string }
-  | { kind: 'region'; id: 'scope' | 'compass' | 'datablock' | 'gate' | 'ptt' | 'sfx' | 'conflict' }
+  | { kind: 'region'; id: 'scope' | 'compass' | 'datablock' | 'gate' | 'ptt' | 'sfx' | 'conflict' | 'dial' }
   | { kind: 'control'; id: string };
 
 export type TutorialExpect =
@@ -21,7 +21,7 @@ export type TutorialDemo =
 
 export interface TutorialStep {
   id: string;
-  /** Instructor narration (also shown as caption). */
+  /** Instructor narration (also shown as caption / transcript). */
   narration: string;
   /** Your-turn prompt shown under the caption when waiting for the student. */
   actionPrompt?: string;
@@ -35,6 +35,7 @@ export interface TutorialStep {
 /**
  * ~2–3 minute kid-friendly script with correct JO 7110.65-style phraseology.
  * Demo steps run the virtual cursor; action steps wait for the student.
+ * Clearances use the compass dial + sticky ISSUE CLEARANCE (Expo tap pad).
  */
 export const TUTORIAL_STEPS: TutorialStep[] = [
   {
@@ -81,74 +82,87 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     expect: { kind: 'select', callsign: TUTORIAL_TARGET_CALLSIGN },
   },
   {
+    id: 'dial-intro',
+    narration:
+      'On the right is the tap clearance pad. Drag the compass dial to pick a heading — it snaps every five degrees. The sim picks the shortest turn unless you force LEFT or RIGHT. ISSUE CLEARANCE stays at the bottom — you never need to scroll to find it. Enter also issues.',
+    highlight: { kind: 'control', id: 'heading-dial' },
+    dwellMs: 7500,
+  },
+  {
     id: 'heading-demo',
     narration:
-      'To turn a plane, give a heading. Watch me: American four twenty-one, turn left heading one eight zero. The pilot will read it back.',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+      'Watch me turn American four twenty-one left to heading zero niner zero. I dial the heading, then tap ISSUE CLEARANCE. The pilot will read it back.',
+    highlight: { kind: 'control', id: 'heading-dial' },
     demo: [
-      { kind: 'point', target: { kind: 'control', id: 'command-input' }, ms: 600 },
-      { kind: 'command', text: 'AAL421 TL180' },
+      { kind: 'point', target: { kind: 'control', id: 'heading-dial' }, ms: 900 },
+      { kind: 'point', target: { kind: 'control', id: 'tap-issue' }, ms: 500 },
+      { kind: 'command', text: 'AAL421 TL090' },
       { kind: 'wait', ms: 1600 },
     ],
   },
   {
     id: 'heading-you',
     narration:
-      'Your turn. Give American four twenty-one a turn to heading two seven zero. You can type AAL421 H270 or use the heading buttons, then issue the clearance.',
-    actionPrompt: 'Issue a heading of 270 for AAL421',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+      'Your turn. Dial heading two seven zero on the compass, then tap ISSUE CLEARANCE — or press Enter. Shortest turn is fine.',
+    actionPrompt: 'Dial H270, then ISSUE CLEARANCE',
+    highlight: { kind: 'control', id: 'heading-dial' },
     expect: {
       kind: 'command',
       match: /AAL421.*(H\s*270|TH\s*270|TL\s*270|TR\s*270|HEADING\s*270)/i,
-      hint: 'Try: AAL421 H270  — then press Issue / Enter',
+      hint: 'Drag the dial to H270, then tap ISSUE CLEARANCE (or press Enter)',
     },
   },
   {
     id: 'altitude-demo',
     narration:
-      'Altitude is said in hundreds of feet. A060 means six thousand. Watch me: American four twenty-one, descend and maintain six thousand.',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+      'Altitude chips are next to the dial. A060 means six thousand feet. Watch me: American four twenty-one, descend and maintain six thousand — then Issue.',
+    highlight: { kind: 'control', id: 'alt-60' },
     demo: [
+      { kind: 'point', target: { kind: 'control', id: 'alt-60' }, ms: 600 },
+      { kind: 'point', target: { kind: 'control', id: 'tap-issue' }, ms: 400 },
       { kind: 'command', text: 'AAL421 A060' },
       { kind: 'wait', ms: 1600 },
     ],
   },
   {
     id: 'altitude-you',
-    narration: 'Your turn. Clear American four twenty-one to altitude A070 — seven thousand feet.',
-    actionPrompt: 'Issue A070 for AAL421',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+    narration:
+      'Your turn. South exits use A060 or A080. Tap A080 for eight thousand, then ISSUE CLEARANCE.',
+    actionPrompt: 'Tap A080, then ISSUE CLEARANCE',
+    highlight: { kind: 'control', id: 'alt-80' },
     expect: {
       kind: 'command',
-      match: /AAL421.*(A\s*070|ALT\s*070|070)/i,
-      hint: 'Try: AAL421 A070',
+      match: /AAL421.*(A\s*080|ALT\s*080)/i,
+      hint: 'Tap A080 on the pad, then ISSUE CLEARANCE',
     },
   },
   {
     id: 'speed-demo',
-    narration: 'Speed uses S for knots. Watch me: American four twenty-one, reduce speed to two one zero knots.',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+    narration: 'Speed chips use S for knots. Watch me assign two one zero knots, then Issue.',
+    highlight: { kind: 'control', id: 'spd-210' },
     demo: [
+      { kind: 'point', target: { kind: 'control', id: 'spd-210' }, ms: 600 },
+      { kind: 'point', target: { kind: 'control', id: 'tap-issue' }, ms: 400 },
       { kind: 'command', text: 'AAL421 S210' },
       { kind: 'wait', ms: 1600 },
     ],
   },
   {
     id: 'speed-you',
-    narration: 'Your turn. Assign American four twenty-one speed S210.',
-    actionPrompt: 'Issue S210 for AAL421',
-    highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
+    narration: 'Your turn. Tap S210, then ISSUE CLEARANCE.',
+    actionPrompt: 'Tap S210, then ISSUE CLEARANCE',
+    highlight: { kind: 'control', id: 'spd-210' },
     expect: {
       kind: 'command',
       match: /AAL421.*S\s*210/i,
-      hint: 'Try: AAL421 S210',
+      hint: 'Tap S210, then ISSUE CLEARANCE',
     },
   },
   {
     id: 'ptt',
     narration:
-      'In Expo mode you can also hold the big HOLD TO TALK button or the Spacebar and speak a clearance. Typing and tap buttons always work if the mic is busy.',
-    highlight: { kind: 'region', id: 'ptt' },
+      'You can also hold HOLD TO TALK or the Spacebar and speak a clearance. The dial and Issue always work if the mic is busy.',
+    highlight: { kind: 'control', id: 'ptt-button' },
     dwellMs: 5500,
   },
   {

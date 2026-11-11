@@ -9,10 +9,13 @@ import ReferencePanel from './components/ReferencePanel';
 import AttractMode from './components/AttractMode';
 import ArcadeSummary from './components/ArcadeSummary';
 import ExpoArcadeHUD from './components/ExpoArcadeHUD';
+import GuidedTutorial, { TutorialActionSink, TutorialBridge } from './components/tutorial/GuidedTutorial';
 import VtfSetup from './components/vtf/VtfSetup';
 import ApproachScope from './components/vtf/ApproachScope';
 import VtfPanel from './components/vtf/VtfPanel';
 import { Aircraft, SimulationState, AlertLevel, GameStats, CommMessage, CommSource, StartOptions } from './types';
+import { buildTutorialScenario, TUTORIAL_SEED } from './services/tutorial/scenario';
+import { hasCompletedTutorial, markTutorialCompleted } from './services/tutorial/storage';
 import { useSimEngine } from './hooks/useSimEngine';
 import type { ApproachKind, WindState } from './sim/types';
 import { generateScenario } from './services/geminiService';
@@ -77,9 +80,12 @@ const App: React.FC = () => {
   const [isRateOpen, setIsRateOpen] = useState(false);
   const [isDataOpen, setIsDataOpen] = useState(true);
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
+  const [tutorialActive, setTutorialActive] = useState(false);
+  const [tutorialDoneFlag, setTutorialDoneFlag] = useState(() => hasCompletedTutorial());
   const [scoreFlash, setScoreFlash] = useState<string | null>(null);
   const [scenarioSeed, setScenarioSeed] = useState<string | null>(() => readSeedFromLocation());
   const [showAttract, setShowAttract] = useState(false);
+  const tutorialActionsRef = useRef<TutorialActionSink>({});
   const [arcadeEndsAt, setArcadeEndsAt] = useState<number | null>(null);
   const [arcadeRemainingMs, setArcadeRemainingMs] = useState(ARCADE_DURATION_MS);
   const [arcadeBanner, setArcadeBanner] = useState<string | null>(null);
@@ -228,6 +234,7 @@ const App: React.FC = () => {
   const returnToMenu = (opts?: { attract?: boolean }) => {
     clearArcadeTimers();
     arcadeActiveRef.current = false;
+    setTutorialActive(false);
     setArcadeEndsAt(null);
     setArcadeBanner(null);
     setLiveTranscript('');
@@ -264,12 +271,44 @@ const App: React.FC = () => {
     }
   }, [score, highScore, stats.separationBusts, clearArcadeTimers]);
 
+  const startTutorial = useCallback(() => {
+    clearArcadeTimers();
+    arcadeActiveRef.current = false;
+    setTutorialActive(true);
+    setShowAttract(false);
+    setShowArcadeSummary(false);
+    setPlayMode('expo');
+    setScenarioSeed(TUTORIAL_SEED);
+    writeSeedToUrl(TUTORIAL_SEED);
+    setScoreFlash(null);
+    setArcadeBanner(null);
+    setLiveTranscript('');
+    setConflictAlarm(false);
+    setArcadeEndsAt(null);
+    setArcadeRemainingMs(ARCADE_DURATION_MS);
+    setTimeScale(2);
+    identifyUser('guest-tutorial');
+    const scenario = buildTutorialScenario();
+    const preferred = scenario.aircraft.find((ac) => ac.isSelected) || scenario.aircraft[0];
+    setAircraft(scenario.aircraft.map((ac) => ({ ...ac, isSelected: ac.id === preferred?.id })));
+    setSelectedId(preferred?.id ?? null);
+    setGameState(SimulationState.RUNNING);
+    setStatusMessage('TUTORIAL');
+    setMessages([{ id: 1, text: 'GUIDED HOW TO PLAY — follow the instructor captions.', source: 'system' }]);
+    setScore(0);
+    setStats({ ...INITIAL_STATS, startTime: Date.now() });
+    incidentCooldowns.current.clear();
+    lastTimeRef.current = 0;
+    trackEvent('Tutorial Started', { seed: TUTORIAL_SEED });
+  }, [clearArcadeTimers]);
+
   const startArcadeRound = useCallback((seedLabel?: string) => {
     clearArcadeTimers();
     const seed = resolveSeedInput(seedLabel || readSeedFromLocation() || 'arcade-1', 'Expo');
     const plan = buildArcadeRound(seed.display);
     const scenario = planToInitialScenario(plan);
     arcadeActiveRef.current = true;
+    setTutorialActive(false);
     setShowAttract(false);
     setShowArcadeSummary(false);
     setPlayMode('expo');
@@ -343,6 +382,7 @@ const App: React.FC = () => {
       onTrack: (callsign, echo) => trackEvent('Command Issued', { callsign, command: echo }),
     });
     if (result.aircraft !== aircraft) setAircraft(result.aircraft);
+    tutorialActionsRef.current.onCommand?.(cmdRaw);
   };
 
   const aircraftRef = useRef(aircraft);
@@ -690,8 +730,33 @@ const App: React.FC = () => {
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
-    setAircraft(prev => prev.map(ac => ({ ...ac, isSelected: ac.id === id })));
+    setAircraft(prev => {
+      const next = prev.map(ac => ({ ...ac, isSelected: ac.id === id }));
+      const picked = next.find((ac) => ac.id === id);
+      if (picked) tutorialActionsRef.current.onSelect?.(picked.callsign);
+      return next;
+    });
   };
+
+  const tutorialBridge: TutorialBridge = {
+    selectAircraft: (callsign: string) => {
+      const match = aircraftRef.current.find((ac) => ac.callsign === callsign);
+      if (match) handleSelect(match.id);
+    },
+    issueCommand: (raw: string) => handleCommandRef.current(raw),
+    findAircraftTestId: (callsign: string) => `aircraft-${callsign}`,
+  };
+
+  const finishTutorial = useCallback((opts: { playExpo: boolean }) => {
+    setTutorialActive(false);
+    if (opts.playExpo) {
+      markTutorialCompleted();
+      setTutorialDoneFlag(true);
+      startArcadeRound();
+      return;
+    }
+    returnToMenu({ attract: false });
+  }, [returnToMenu, startArcadeRound]);
 
   const selectedAircraft = aircraft.find(ac => ac.id === selectedId) || null;
 
@@ -813,9 +878,11 @@ const App: React.FC = () => {
       {gameState === SimulationState.MENU && !showAttract && !(ENABLE_VECTOR_TO_FINAL && showVtfSetup) && (
         <MainMenu
           onStart={startGame}
+          onTutorial={startTutorial}
           onOpenVtf={ENABLE_VECTOR_TO_FINAL ? () => setShowVtfSetup(true) : undefined}
           highScore={highScore}
           activeSeed={scenarioSeed}
+          tutorialDone={tutorialDoneFlag}
         />
       )}
       {ENABLE_VECTOR_TO_FINAL && showVtfSetup && (
@@ -848,7 +915,7 @@ const App: React.FC = () => {
         </div>
       )}
       {showAttract && gameState === SimulationState.MENU && (
-        <AttractMode onStart={() => startArcadeRound()} />
+        <AttractMode onStart={() => startArcadeRound()} onTutorial={startTutorial} />
       )}
       {gameState === SimulationState.SUMMARY && showArcadeSummary && (
         <ArcadeSummary score={score} stats={stats} onDone={finishArcadeSummary} />
@@ -885,11 +952,18 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {playMode === 'expo' && gameState === SimulationState.RUNNING && !arcadeBanner && (
+                {playMode === 'expo' && gameState === SimulationState.RUNNING && !arcadeBanner && !tutorialActive && (
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-black/80 border border-green-700 text-green-300 text-[11px] md:text-xs px-3 py-2 rounded shadow-lg text-center">
                     Hold PTT and speak, or tap a plane and build a clearance. Aim for the pulsing gate.
                   </div>
                 )}
+
+                <GuidedTutorial
+                  active={tutorialActive && gameState === SimulationState.RUNNING}
+                  bridge={tutorialBridge}
+                  actionRef={tutorialActionsRef}
+                  onFinished={finishTutorial}
+                />
 
                 {conflictAlarm && (
                   <div className="absolute inset-0 z-40 pointer-events-none bg-red-600/25 flex items-center justify-center">
@@ -972,6 +1046,7 @@ const App: React.FC = () => {
             onSpeechError={handleSpeechError}
             onIssue={handleCommand}
             onFullscreen={requestFullscreen}
+            tutorial={tutorialActive}
           />
         ) : null}
       />

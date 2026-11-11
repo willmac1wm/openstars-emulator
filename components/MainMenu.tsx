@@ -8,9 +8,12 @@ import { ENABLE_VECTOR_TO_FINAL } from '../services/features';
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
+  onTutorial?: () => void;
   onOpenVtf?: () => void;
   highScore: number;
   activeSeed?: string | null;
+  /** When false, primary CTA launches the guided tutorial first. */
+  tutorialDone?: boolean;
 }
 
 const MODES: Array<{
@@ -25,7 +28,14 @@ const MODES: Array<{
   { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
 ];
 
-const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, activeSeed = null }) => {
+const MainMenu: React.FC<MainMenuProps> = ({
+  onStart,
+  onTutorial,
+  onOpenVtf,
+  highScore,
+  activeSeed = null,
+  tutorialDone = true,
+}) => {
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
@@ -83,23 +93,42 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               data-testid="expo-start"
-              onClick={() => handleStart('Expo')}
+              onClick={() => {
+                if (!tutorialDone && onTutorial) onTutorial();
+                else handleStart('Expo');
+              }}
               className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center justify-center gap-1"
             >
               <span className="flex items-center gap-2"><Play fill="black" size={24} /> TRY THE SCOPE</span>
               <span className="text-xs font-normal tracking-wide opacity-80">
                 {voicesLoading
                   ? 'Voices still loading — start anyway?'
-                  : '5-min arcade · fast jets · voice'}
+                  : !tutorialDone
+                    ? 'Guided how-to-play · dial · Issue'
+                    : '5-min arcade · fast jets · voice'}
               </span>
             </button>
+
+            {onTutorial && (
+              <button
+                type="button"
+                data-testid="how-to-play"
+                onClick={onTutorial}
+                className="w-full bg-cyan-900/50 hover:bg-cyan-800/60 border border-cyan-600/70 text-cyan-100 font-bold text-xl md:text-2xl py-5 px-3 rounded transition-all flex flex-col items-center justify-center gap-1"
+              >
+                <span className="flex items-center gap-2"><Sparkles size={22} /> HOW TO PLAY</span>
+                <span className="text-xs font-normal tracking-wide opacity-80">
+                  Narrated tutorial · compass dial · sticky Issue
+                </span>
+              </button>
+            )}
 
             {showVtf && (
               <button
                 type="button"
                 data-testid="vtf-menu"
                 onClick={onOpenVtf}
-                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1"
+                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1 sm:col-span-2"
               >
                 <span className="flex items-center gap-2"><Play fill="black" size={24} /> VECTOR TO FINAL</span>
                 <span className="text-xs font-normal tracking-wide opacity-80">
@@ -218,14 +247,25 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
 
         <aside className="bg-gray-950 border border-gray-800 rounded p-4 md:p-5 space-y-4 text-gray-300">
           <div className="flex items-center gap-2 text-green-400 font-bold text-lg">
-            <Sparkles size={18} /> HOW TO PLAY
+            <Sparkles size={18} /> QUICK TIPS
           </div>
           <ol className="space-y-3 text-sm md:text-base leading-relaxed list-decimal list-inside">
             <li>Select an aircraft on the scope.</li>
-            <li>Turn and climb or descend it toward its exit gate.</li>
-            <li>Keep planes 3 miles / 1,000 ft apart.</li>
-            <li>Hit the gate at a legal altitude to score.</li>
+            <li>Dial a heading on the compass; tap altitude/speed chips.</li>
+            <li>Tap ISSUE CLEARANCE (always at the bottom) — or press Enter.</li>
+            <li>Keep planes 3 miles / 1,000 ft apart; hit the gate to score.</li>
           </ol>
+
+          {onTutorial && (
+            <button
+              type="button"
+              data-testid="how-to-play-aside"
+              onClick={onTutorial}
+              className="w-full bg-cyan-700/40 hover:bg-cyan-600/50 border border-cyan-600 text-cyan-50 font-bold py-3 rounded text-sm"
+            >
+              Launch narrated tutorial
+            </button>
+          )}
 
           <div>
             <div className="text-green-400 font-bold text-sm uppercase tracking-wider mb-2">Command examples</div>
