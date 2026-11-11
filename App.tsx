@@ -404,6 +404,8 @@ const App: React.FC = () => {
 
   // --- Command Parser ---
   const lastIssuedRef = useRef<{ cmd: string; at: number } | null>(null);
+  /** When true, handleCommand/handleSelect skip tutorial sinks (demo-driven actions). */
+  const tutorialDemoSilentRef = useRef(false);
   const handleCommand = (cmdRaw: string) => {
     const cmd = cmdRaw.trim().toUpperCase();
     if (!cmd) return;
@@ -421,7 +423,9 @@ const App: React.FC = () => {
       onTrack: (callsign, echo) => trackEvent('Command Issued', { callsign, command: echo }),
     });
     if (result.aircraft !== aircraft) setAircraft(result.aircraft);
-    tutorialActionsRef.current.onCommand?.(cmdRaw);
+    if (!tutorialDemoSilentRef.current) {
+      tutorialActionsRef.current.onCommand?.(cmdRaw);
+    }
   };
 
   const aircraftRef = useRef(aircraft);
@@ -796,20 +800,35 @@ const App: React.FC = () => {
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
-    setAircraft(prev => {
-      const next = prev.map(ac => ({ ...ac, isSelected: ac.id === id }));
-      const picked = next.find((ac) => ac.id === id);
-      if (picked) tutorialActionsRef.current.onSelect?.(picked.callsign);
-      return next;
-    });
+    const picked =
+      aircraftRef.current.find((ac) => ac.id === id) ||
+      null;
+    setAircraft((prev) => prev.map((ac) => ({ ...ac, isSelected: ac.id === id })));
+    // Notify tutorial synchronously so demoSilentRef still applies for bridge selects.
+    if (picked && !tutorialDemoSilentRef.current) {
+      tutorialActionsRef.current.onSelect?.(picked.callsign);
+    }
   };
 
   const tutorialBridge: TutorialBridge = {
     selectAircraft: (callsign: string) => {
       const match = aircraftRef.current.find((ac) => ac.callsign === callsign);
-      if (match) handleSelect(match.id);
+      if (!match) return;
+      tutorialDemoSilentRef.current = true;
+      try {
+        handleSelect(match.id);
+      } finally {
+        tutorialDemoSilentRef.current = false;
+      }
     },
-    issueCommand: (raw: string) => handleCommandRef.current(raw),
+    issueCommand: (raw: string) => {
+      tutorialDemoSilentRef.current = true;
+      try {
+        handleCommandRef.current(raw);
+      } finally {
+        tutorialDemoSilentRef.current = false;
+      }
+    },
     findAircraftTestId: (callsign: string) => `aircraft-${callsign}`,
   };
 

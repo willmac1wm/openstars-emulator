@@ -79,6 +79,8 @@ const TutorialOverlay: React.FC<Props> = ({
   return (
     <div
       data-testid="tutorial-overlay"
+      data-tutorial-step={step.id}
+      data-tutorial-phase={state.phase}
       className="absolute inset-x-0 bottom-0 z-[70] p-3 md:p-4 pointer-events-auto"
     >
       <div className="mx-auto max-w-3xl rounded-xl border border-cyan-700/60 bg-black/92 backdrop-blur-sm p-3 md:p-4 text-cyan-50 shadow-lg space-y-3">

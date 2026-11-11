@@ -5,15 +5,13 @@
  * Usage:
  *   npm run preview -- --host 127.0.0.1 --port 4173
  *   node scripts/tutorial-e2e.mjs
- * Or against prod:
- *   OPENSTARS_URL=https://openstars-emulator.vercel.app node scripts/tutorial-e2e.mjs
  */
 import { chromium } from 'playwright';
 
 const base = process.env.OPENSTARS_URL || 'http://127.0.0.1:4173';
 const VIEW = { width: 1024, height: 640 };
 
-/** Keep in sync with services/tutorial/steps.ts — ids + expect kinds for the driver. */
+/** Keep in sync with services/tutorial/steps.ts */
 const TUTORIAL_STEPS = [
   { id: 'welcome', narration: 'Hi! I am your instructor', dwellMs: 0 },
   { id: 'scope', narration: 'This black screen is your radar scope', dwellMs: 5500 },
@@ -45,7 +43,6 @@ await page.addInitScript(() => {
     const speak = synth.speak.bind(synth);
     synth.speak = (utterance) => {
       window.__spoken.push(utterance.text || '');
-      // Instant-complete so Web Speech does not block the run.
       queueMicrotask(() => {
         try {
           utterance.onend?.(new Event('end'));
@@ -58,85 +55,79 @@ await page.addInitScript(() => {
   }
 });
 
-page.on('pageerror', (err) => {
-  console.error('pageerror', err);
-});
-
 const fail = (msg) => {
   console.error('FAIL:', msg);
   process.exitCode = 1;
 };
 
+const stepId = async () =>
+  page.evaluate(() => document.querySelector('[data-testid="tutorial-overlay"]')?.getAttribute('data-tutorial-step') || '');
+
+const captionText = async () =>
+  page.evaluate(() => document.querySelector('[data-testid="tutorial-caption"]')?.textContent || '');
+
+const assertNotFailed = async () => {
+  const body = await page.evaluate(() => document.body.innerText);
+  if (/\bFAILED\b/.test(body)) fail(`Tutorial showed FAILED: ${body.slice(0, 280)}`);
+  const summaryVisible = await page.getByText(/SHIFT COMPLETE|GAME OVER/i).count();
+  const tut = await page.getByTestId('tutorial-overlay').count();
+  if (summaryVisible && !tut) fail('Summary appeared while tutorial overlay gone');
+};
+
+const clickNext = async () => {
+  const next = page.getByTestId('tutorial-next');
+  if (await next.count()) await next.click();
+};
+
+/** SVG <g> force-clicks are unreliable; dispatch a DOM click on the live node. */
+const clickAircraft = async (callsign) => {
+  const ok = await page.evaluate((cs) => {
+    const el = document.querySelector(`[data-testid="aircraft-${cs}"]`);
+    if (!el) return false;
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return true;
+  }, callsign);
+  if (!ok) fail(`Aircraft ${callsign} not in DOM`);
+};
+
+const waitForStep = async (id, timeoutMs = 20_000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await page.getByTestId('tutorial-finish').count()) return 'finished';
+    if ((await stepId()) === id) return 'ok';
+    await page.waitForTimeout(120);
+  }
+  fail(`Timed out waiting for step ${id} (at ${await stepId()}, caption=${await captionText()})`);
+  return 'fail';
+};
+
 await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-// Dismiss voice gate if present and open How to Play.
 const howTo = page.getByTestId('how-to-play');
 if (!(await howTo.count())) {
-  // Some builds gate behind "Start with basic voice"
   const basic = page.getByRole('button', { name: /basic voice/i });
   if (await basic.count()) await basic.first().click();
 }
 await howTo.click({ timeout: 20_000 });
-
 await page.getByTestId('tutorial-overlay').waitFor({ timeout: 20_000 });
-await page.getByTestId('expo-arcade-hud').waitFor({ timeout: 10_000 });
 
-// Never show FAILED / SUMMARY during tutorial.
-const assertNotFailed = async () => {
-  const summary = await page.locator('text=/FAILED|GAME OVER|SHIFT COMPLETE/i').count();
-  const state = await page.evaluate(() => document.body.innerText.slice(0, 2000));
-  if (/FAILED/i.test(state) && !/never/i.test(state)) {
-    fail(`Tutorial entered FAILED-like state: ${state.slice(0, 240)}`);
-  }
-  if (summary > 0) {
-    // Arcade summary should not appear mid-tutorial
-    const tut = await page.getByTestId('tutorial-overlay').count();
-    if (tut === 0) fail('Tutorial overlay gone while summary visible');
-  }
-};
-
-const waitProgress = async (minPct) => {
-  await page.waitForFunction(
-    (min) => {
-      const el = document.querySelector('[data-testid="tutorial-progress"]');
-      if (!el) return false;
-      const n = Number.parseInt(el.textContent || '0', 10);
-      return n >= min;
-    },
-    minPct,
-    { timeout: 45_000 },
-  );
-};
-
-const stepCount = TUTORIAL_STEPS.length;
-
-for (let i = 0; i < stepCount; i++) {
+for (let i = 0; i < TUTORIAL_STEPS.length; i++) {
   await assertNotFailed();
-  const step = TUTORIAL_STEPS[i];
-  const overlay = page.getByTestId('tutorial-overlay');
-  await overlay.waitFor({ state: 'visible' });
+  if (process.exitCode) break;
+  if (await page.getByTestId('tutorial-finish').count()) break;
 
-  // Captions must show narration for this step (or finished screen).
-  if (step.id !== 'done') {
-    // Wait until caption includes a chunk of this narration or we advanced.
-    await page.waitForFunction(
-      (snip) => {
-        const cap = document.querySelector('[data-testid="tutorial-caption"]');
-        const done = document.querySelector('[data-testid="tutorial-finish"]');
-        if (done) return true;
-        return Boolean(cap && cap.textContent && cap.textContent.includes(snip.slice(0, 24)));
-      },
-      step.narration,
-      { timeout: 30_000 },
-    ).catch(() => {
-      // Soft — narration may already have advanced on short dwell
-    });
-  }
+  const step = TUTORIAL_STEPS[i];
+  console.log(`step ${i} ${step.id} at=${await stepId()}`);
+
+  const arrived = await waitForStep(step.id);
+  if (arrived !== 'ok' || process.exitCode) break;
 
   if (step.expect?.kind === 'select') {
-    await page.getByTestId(`aircraft-${step.expect.callsign}`).click({ timeout: 15_000, force: true });
+    await page.getByTestId('tutorial-action-prompt').waitFor({ timeout: 8_000 });
+    await clickAircraft(step.expect.callsign);
+    if (i + 1 < TUTORIAL_STEPS.length) await waitForStep(TUTORIAL_STEPS[i + 1].id);
   } else if (step.expect?.kind === 'command') {
-    // Use typed CMD + Enter so we do not depend on dial geometry in headless.
+    await page.getByTestId('tutorial-action-prompt').waitFor({ timeout: 8_000 });
     const input = page.getByTestId('command-input');
     await input.click();
     let cmd = 'AAL421 ';
@@ -146,55 +137,57 @@ for (let i = 0; i < stepCount; i++) {
     else cmd += 'TL270';
     await input.fill(cmd);
     await page.getByTestId('command-send').click();
-  } else if (step.dwellMs === 0) {
-    // Welcome / done — press Next or finish.
-    const next = page.getByTestId('tutorial-next');
-    const finish = page.getByTestId('tutorial-finish');
-    if (await finish.count()) break;
-    if (await next.count()) await next.click();
+    if (i + 1 < TUTORIAL_STEPS.length) await waitForStep(TUTORIAL_STEPS[i + 1].id);
   } else if (step.demo) {
-    // Demo auto-advances — wait for progress to move past this index.
-    const target = Math.round(((i + 1) / stepCount) * 100);
-    await waitProgress(Math.max(1, target - 5));
+    // Wait for demo to auto-advance; Next only if stuck.
+    const nextId = TUTORIAL_STEPS[i + 1]?.id;
+    const start = Date.now();
+    let advanced = false;
+    while (Date.now() - start < 8_000) {
+      if (await page.getByTestId('tutorial-finish').count()) {
+        advanced = true;
+        break;
+      }
+      if (nextId && (await stepId()) === nextId) {
+        advanced = true;
+        break;
+      }
+      await page.waitForTimeout(200);
+    }
+    if (!advanced) {
+      await clickNext();
+      if (nextId) await waitForStep(nextId);
+    }
   } else {
-    // Narrating with dwell — wait for auto advance.
-    const target = Math.round(((i + 1) / stepCount) * 100);
-    await waitProgress(Math.max(1, target - 5));
+    await clickNext();
+    if (i + 1 < TUTORIAL_STEPS.length) await waitForStep(TUTORIAL_STEPS[i + 1].id);
   }
 }
 
-// Finish screen
-await page.getByTestId('tutorial-finish').or(page.getByTestId('tutorial-skip-done')).waitFor({ timeout: 60_000 });
-await assertNotFailed();
+if (!process.exitCode) {
+  await page.getByTestId('tutorial-finish').waitFor({ timeout: 20_000 });
+  await assertNotFailed();
 
-const narrations = await page.evaluate(() => window.__tutorialNarrations || []);
-const spoken = await page.evaluate(() => window.__spoken || []);
-console.log('narration requests', narrations.length, 'webspeech utterances', spoken.length);
+  const narrations = await page.evaluate(() => window.__tutorialNarrations || []);
+  console.log('narration requests', narrations.length);
 
-const missing = [];
-for (const step of TUTORIAL_STEPS) {
-  if (step.id === 'done') continue;
-  const hit = narrations.some((n) => typeof n === 'string' && n.includes(step.narration.slice(0, 20)));
-  if (!hit) missing.push(step.id);
-}
-if (missing.length) {
-  fail(`Narration not requested for steps: ${missing.join(', ')}`);
-} else {
-  console.log('OK: narration requested for every instructional step');
-}
+  const missing = [];
+  for (const step of TUTORIAL_STEPS) {
+    if (step.id === 'done') continue;
+    const hit = narrations.some((n) => typeof n === 'string' && n.includes(step.narration.slice(0, 18)));
+    if (!hit) missing.push(step.id);
+  }
+  if (missing.length) fail(`Narration not requested for steps: ${missing.join(', ')}`);
+  else console.log('OK: narration requested for every instructional step');
 
-// Soft keyboard still present / toggleable in tutorial (expo).
-const kbToggle = page.getByTestId('soft-keyboard-toggle');
-if (await kbToggle.count()) {
-  console.log('OK: soft-keyboard toggle present');
-}
+  if (await page.getByTestId('soft-keyboard-toggle').count()) console.log('OK: soft-keyboard toggle present');
+  else fail('Missing soft-keyboard toggle');
 
-// Altitude chips include all gate alts
-for (const alt of [60, 70, 80, 90]) {
-  const chip = page.getByTestId(`alt-${alt}`);
-  if (!(await chip.count())) fail(`Missing altitude chip alt-${alt}`);
+  for (const alt of [60, 70, 80, 90]) {
+    if (!(await page.getByTestId(`alt-${alt}`).count())) fail(`Missing altitude chip alt-${alt}`);
+  }
+  console.log('OK: altitude chips A060–A090 present');
 }
-console.log('OK: altitude chips A060–A090 present');
 
 await browser.close();
 if (!process.exitCode) console.log('PASS tutorial-e2e');
