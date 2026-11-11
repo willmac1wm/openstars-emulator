@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { ApproachProcedure, SimAircraft, SimState } from '../../sim/types';
 import { buildTapApproachClearance } from '../../services/speechCommand';
+import { prewarmReadback } from '../../services/pilotVoice';
 import PushToTalk from '../PushToTalk';
+import VoiceBar from '../VoiceBar';
 import { Mic } from 'lucide-react';
 
 interface Props {
@@ -42,18 +44,29 @@ const VtfPanel: React.FC<Props> = ({
     });
   }, [selected, proc, miles, turn, heading]);
 
+  useEffect(() => {
+    if (!selected || !preview?.phraseology) return;
+    const timer = window.setTimeout(() => {
+      prewarmReadback(preview.phraseology, selected.callsign);
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [selected, preview?.phraseology]);
+
   const logs = state.events.filter((e) => e.kind === 'controller' || e.kind === 'pilot' || e.kind === 'unable').slice(-12);
 
   return (
     <div className="w-full lg:w-96 bg-gray-950 border-l border-gray-800 flex flex-col text-green-400 font-mono h-full overflow-hidden" data-testid="vtf-panel">
-      <div className="p-2 border-b border-gray-800 flex justify-between items-center">
-        <div>
-          <div className="text-white font-bold">VECTOR TO FINAL</div>
-          <div className="text-[10px] text-gray-500">SCORE {state.score} · SEED {state.seedLabel}</div>
+      <div className="p-2 border-b border-gray-800 space-y-1.5">
+        <div className="flex justify-between items-center">
+          <div>
+            <div className="text-white font-bold">VECTOR TO FINAL</div>
+            <div className="text-[10px] text-gray-500">SCORE {state.score} · SEED {state.seedLabel}</div>
+          </div>
+          <button type="button" onClick={onExit} className="text-xs border border-gray-700 px-2 py-1 rounded text-gray-300">
+            EXIT
+          </button>
         </div>
-        <button type="button" onClick={onExit} className="text-xs border border-gray-700 px-2 py-1 rounded text-gray-300">
-          EXIT
-        </button>
+        <VoiceBar />
       </div>
 
       <div className="p-2 space-y-2 border-b border-gray-800">

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetPilotVoiceForTests,
   getVoiceRuntime,
+  prewarmCallsigns,
+  prewarmReadback,
   speakPilot,
   splitReadbackChunks,
   useBasicVoiceNow,
@@ -114,5 +116,43 @@ describe('pilot voice preload helpers', () => {
       'Turn left heading two seven zero,',
       'American four twenty-one',
     ]);
+  });
+
+  it('filters out novelty voices and prefers enhanced/natural English voices in Fast mode', () => {
+    const speak = vi.fn();
+    class FakeUtterance {
+      text: string;
+      voice: { name: string; lang: string } | null = null;
+      rate = 1;
+      volume = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    const voices = [
+      { name: 'Zarvox', lang: 'en-US' },
+      { name: 'Bells', lang: 'en-US' },
+      { name: 'Samantha (Enhanced)', lang: 'en-US' },
+    ];
+    vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
+    vi.stubGlobal('window', {
+      speechSynthesis: { getVoices: () => voices, speak, cancel: vi.fn() },
+      AudioContext: undefined,
+      requestIdleCallback: undefined,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+    });
+    vi.stubGlobal('speechSynthesis', { getVoices: () => voices, speak, cancel: vi.fn() });
+
+    speakPilot('Turn right heading zero niner zero, United one twenty', 'UAL120');
+    expect(speak).toHaveBeenCalledTimes(1);
+    const utter = speak.mock.calls[0][0] as FakeUtterance;
+    expect(utter.voice?.name).toBe('Samantha (Enhanced)');
+  });
+
+  it('prewarmReadback and prewarmCallsigns are safe no-ops before engine ready', () => {
+    expect(() => prewarmReadback('Turn left heading two seven zero, American four twenty-one', 'AAL421')).not.toThrow();
+    expect(() => prewarmCallsigns(['AAL421', 'DAL88'])).not.toThrow();
   });
 });

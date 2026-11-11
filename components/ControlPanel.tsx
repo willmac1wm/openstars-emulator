@@ -5,6 +5,8 @@ import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keybo
 import SoftKeyboard from './SoftKeyboard';
 import VoiceBar from './VoiceBar';
 import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
+import { parseCommand } from '../services/commandParser';
+import { prewarmReadback } from '../services/pilotVoice';
 
 interface ControlPanelProps {
   selectedAircraft: Aircraft | null;
@@ -90,6 +92,18 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Predictive pre-synthesis while the user types a clearance so pressing Enter hits warm cache
+  useEffect(() => {
+    if (!selectedAircraft || !inputValue.trim()) return;
+    const timer = window.setTimeout(() => {
+      const parsed = parseCommand(inputValue.toUpperCase(), [selectedAircraft], selectedAircraft.id);
+      if (parsed.readback && parsed.callsign) {
+        prewarmReadback(parsed.readback, parsed.callsign);
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [inputValue, selectedAircraft]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();

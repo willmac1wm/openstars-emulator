@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Aircraft } from '../types';
 import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
 import { buildTapClearance } from '../services/speechCommand';
+import { prewarmReadback } from '../services/pilotVoice';
 
 interface TapCommandPadProps {
   aircraft: Aircraft | null;
@@ -26,6 +27,14 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
       speed,
     });
   }, [aircraft, turn, heading, altitude, speed]);
+
+  useEffect(() => {
+    if (!aircraft || !preview.phraseology) return;
+    const timer = window.setTimeout(() => {
+      prewarmReadback(preview.phraseology, aircraft.callsign);
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [aircraft, preview.phraseology]);
 
   if (!aircraft) {
     return (

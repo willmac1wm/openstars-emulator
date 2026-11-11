@@ -18,7 +18,7 @@ import type { ApproachKind, WindState } from './sim/types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { issueControllerCommand } from './services/commandIssue';
-import { installVoiceDebugHooks, preloadPilotVoice, primePilotVoice, speakPilot } from './services/pilotVoice';
+import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
 import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
@@ -657,6 +657,17 @@ const App: React.FC = () => {
     installVoiceDebugHooks();
     preloadPilotVoice();
   }, []);
+
+  // Pre-synthesize callsigns for active aircraft so the tail chunk of every readback is cached.
+  useEffect(() => {
+    const active = [
+      ...aircraft.map((ac) => ac.callsign),
+      ...vtfState.aircraft.map((ac) => ac.callsign),
+    ].filter(Boolean);
+    if (active.length > 0) {
+      prewarmCallsigns(active);
+    }
+  }, [aircraft.length, vtfState.aircraft.length]);
 
   useEffect(() => {
     const unlock = () => {

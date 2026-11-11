@@ -90,7 +90,7 @@ const VoicePreloadBanner: React.FC<Props> = ({ showBasicOption = true, className
           }}
           className="text-[10px] md:text-xs underline text-violet-300/90 hover:text-violet-200"
         >
-          Natural voices (slower)
+          {runtime.neuralFastEnough ? 'Enable natural voices (GPU ready)' : 'Natural voices (slower)'}
         </button>
       )}
     </div>
