@@ -8,25 +8,20 @@ import {
   isDesktopApp,
   DesktopPlatform,
 } from '../services/desktop';
+import {
+  detectMacArch,
+  macArchSecondaryLabel,
+  MacArch,
+  pickMacDmgAlternate,
+  pickMacDmgForArch,
+  ReleaseAssetLike,
+} from '../services/macArch';
 
-interface ReleaseAsset {
-  name: string;
-  size: number;
-  browser_download_url: string;
-}
+type ReleaseAsset = ReleaseAssetLike;
 
 function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / (1024 * 1024)).toFixed(0)} MB`;
-}
-
-function pickMac(assets: ReleaseAsset[]): ReleaseAsset | null {
-  // Prefer Apple Silicon .dmg (primary expo machines); fall back to any .dmg.
-  return (
-    assets.find((a) => /aarch64.*\.dmg$/i.test(a.name))
-    || assets.find((a) => /\.dmg$/i.test(a.name))
-    || null
-  );
 }
 
 function pickWindows(assets: ReleaseAsset[]): ReleaseAsset | null {
@@ -39,11 +34,13 @@ function pickWindows(assets: ReleaseAsset[]): ReleaseAsset | null {
 
 /**
  * Bottom-of-menu download CTA for the web build only (hidden inside the desktop app).
- * Always offers Mac + Windows when release assets exist (Linux visitors still get both).
+ * Mac button picks arm64 vs Intel DMG from detected architecture; Windows stays MSI.
  */
 const DesktopDownload: React.FC = () => {
   const [platform] = useState<DesktopPlatform>(() => detectWebOs());
+  const [macArch, setMacArch] = useState<MacArch>('arm64');
   const [mac, setMac] = useState<ReleaseAsset | null>(null);
+  const [macAlt, setMacAlt] = useState<ReleaseAsset | null>(null);
   const [win, setWin] = useState<ReleaseAsset | null>(null);
   const [missing, setMissing] = useState(false);
 
@@ -51,6 +48,9 @@ const DesktopDownload: React.FC = () => {
     if (isDesktopApp()) return;
     let cancelled = false;
     (async () => {
+      const arch = await detectMacArch();
+      if (cancelled) return;
+      setMacArch(arch);
       try {
         const res = await fetch(desktopReleaseApiUrl(), {
           headers: { Accept: 'application/vnd.github+json' },
@@ -61,10 +61,12 @@ const DesktopDownload: React.FC = () => {
         }
         const data = (await res.json()) as { assets?: ReleaseAsset[] };
         const assets = data.assets || [];
-        const nextMac = pickMac(assets);
+        const nextMac = pickMacDmgForArch(assets, arch);
+        const nextAlt = pickMacDmgAlternate(assets, arch);
         const nextWin = pickWindows(assets);
         if (!cancelled) {
           setMac(nextMac);
+          setMacAlt(nextAlt);
           setWin(nextWin);
           setMissing(!nextMac && !nextWin);
         }
@@ -81,6 +83,7 @@ const DesktopDownload: React.FC = () => {
 
   const macPrimary = platform === 'macos';
   const winPrimary = platform === 'windows';
+  const macLabelArch = macArch === 'arm64' ? 'Apple Silicon' : 'Intel';
 
   return (
     <section
@@ -98,19 +101,34 @@ const DesktopDownload: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-          <a
-            data-testid="desktop-download-mac"
-            href={mac?.browser_download_url || desktopReleasesPageUrl()}
-            className={`inline-flex items-center justify-center gap-2 font-bold px-4 py-3 rounded ${
-              macPrimary
-                ? 'bg-green-600 hover:bg-green-500 text-black'
-                : 'border border-gray-600 text-gray-200 hover:border-green-500 hover:text-white'
-            }`}
-            rel="noopener noreferrer"
-          >
-            <Download size={16} />
-            {mac ? `Mac (.dmg · ${formatBytes(mac.size)})` : 'Mac (releases)'}
-          </a>
+          <div className="flex flex-col gap-1 items-stretch sm:items-start">
+            <a
+              data-testid="desktop-download-mac"
+              data-mac-arch={macArch}
+              href={mac?.browser_download_url || desktopReleasesPageUrl()}
+              className={`inline-flex items-center justify-center gap-2 font-bold px-4 py-3 rounded ${
+                macPrimary
+                  ? 'bg-green-600 hover:bg-green-500 text-black'
+                  : 'border border-gray-600 text-gray-200 hover:border-green-500 hover:text-white'
+              }`}
+              rel="noopener noreferrer"
+            >
+              <Download size={16} />
+              {mac
+                ? `Mac ${macLabelArch} (.dmg · ${formatBytes(mac.size)})`
+                : 'Mac (releases)'}
+            </a>
+            {macAlt && (
+              <a
+                data-testid="desktop-download-mac-alt"
+                href={macAlt.browser_download_url}
+                className="text-[11px] text-gray-500 hover:text-green-300 underline underline-offset-2 px-1"
+                rel="noopener noreferrer"
+              >
+                {macArchSecondaryLabel(macArch)}
+              </a>
+            )}
+          </div>
           <a
             data-testid="desktop-download-windows"
             href={win?.browser_download_url || desktopReleasesPageUrl()}
