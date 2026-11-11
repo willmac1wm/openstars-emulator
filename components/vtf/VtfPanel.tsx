@@ -5,13 +5,14 @@ import { prewarmReadback } from '../../services/pilotVoice';
 import PushToTalk from '../PushToTalk';
 import VoiceBar from '../VoiceBar';
 import { Mic } from 'lucide-react';
+import type { SpeechResultPayload } from '../../services/speechRecognition';
 
 interface Props {
   state: SimState;
   selected: SimAircraft | null;
   liveTranscript: string;
   onCommand: (cmd: string) => void;
-  onTranscript: (text: string, isFinal: boolean) => void;
+  onTranscript: (payload: SpeechResultPayload) => void;
   onSpeechError: (msg: string) => void;
   onExit: () => void;
 }

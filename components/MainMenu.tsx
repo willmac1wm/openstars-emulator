@@ -12,7 +12,7 @@ interface MainMenuProps {
   onOpenVtf?: () => void;
   highScore: number;
   activeSeed?: string | null;
-  /** When false, primary CTA launches the guided tutorial first. */
+  /** Reserved for callers; sessions never force the tutorial. */
   tutorialDone?: boolean;
 }
 
@@ -34,7 +34,6 @@ const MainMenu: React.FC<MainMenuProps> = ({
   onOpenVtf,
   highScore,
   activeSeed = null,
-  tutorialDone = true,
 }) => {
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
@@ -90,53 +89,34 @@ const MainMenu: React.FC<MainMenuProps> = ({
 
           <VoicePreloadBanner />
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          {onTutorial && (
             <button
-              data-testid="expo-start"
-              onClick={() => {
-                if (!tutorialDone && onTutorial) onTutorial();
-                else handleStart('Expo');
-              }}
-              className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center justify-center gap-1"
+              type="button"
+              data-testid="how-to-play"
+              onClick={onTutorial}
+              className="w-full bg-cyan-900/50 hover:bg-cyan-800/60 border border-cyan-600/70 text-cyan-100 font-bold text-xl md:text-2xl py-5 px-3 rounded transition-all flex flex-col items-center justify-center gap-1"
             >
-              <span className="flex items-center gap-2"><Play fill="black" size={24} /> TRY THE SCOPE</span>
+              <span className="flex items-center gap-2"><Sparkles size={22} /> HOW TO PLAY</span>
               <span className="text-xs font-normal tracking-wide opacity-80">
-                {voicesLoading
-                  ? 'Voices still loading — start anyway?'
-                  : !tutorialDone
-                    ? 'Guided how-to-play · dial · Issue'
-                    : '5-min arcade · fast jets · voice'}
+                Narrated tutorial · dial · type · Issue
               </span>
             </button>
+          )}
 
-            {onTutorial && (
-              <button
-                type="button"
-                data-testid="how-to-play"
-                onClick={onTutorial}
-                className="w-full bg-cyan-900/50 hover:bg-cyan-800/60 border border-cyan-600/70 text-cyan-100 font-bold text-xl md:text-2xl py-5 px-3 rounded transition-all flex flex-col items-center justify-center gap-1"
-              >
-                <span className="flex items-center gap-2"><Sparkles size={22} /> HOW TO PLAY</span>
-                <span className="text-xs font-normal tracking-wide opacity-80">
-                  Narrated tutorial · compass dial · sticky Issue
-                </span>
-              </button>
-            )}
+          {showVtf && (
+            <button
+              type="button"
+              data-testid="vtf-menu"
+              onClick={onOpenVtf}
+              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1"
+            >
+              <span className="flex items-center gap-2"><Play fill="black" size={24} /> VECTOR TO FINAL</span>
+              <span className="text-xs font-normal tracking-wide opacity-80">
+                ILS &amp; VOR intercept · localizer · wake
+              </span>
+            </button>
+          )}
 
-            {showVtf && (
-              <button
-                type="button"
-                data-testid="vtf-menu"
-                onClick={onOpenVtf}
-                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1 sm:col-span-2"
-              >
-                <span className="flex items-center gap-2"><Play fill="black" size={24} /> VECTOR TO FINAL</span>
-                <span className="text-xs font-normal tracking-wide opacity-80">
-                  ILS &amp; VOR intercept · localizer · wake
-                </span>
-              </button>
-            )}
-          </div>
           {voicesLoading && (
             <button
               type="button"
@@ -233,6 +213,17 @@ const MainMenu: React.FC<MainMenuProps> = ({
               <span className="text-[11px] font-normal text-green-100/80">Voices still loading — start anyway?</span>
             )}
           </button>
+          {/* Keep expo-start as alias for Expo session start (tests / attract). Never forces tutorial. */}
+          <button
+            type="button"
+            data-testid="expo-start"
+            onClick={() => handleStart('Expo')}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+          >
+            Start Expo
+          </button>
           {voicesLoading && (
             <button
               type="button"
@@ -251,21 +242,10 @@ const MainMenu: React.FC<MainMenuProps> = ({
           </div>
           <ol className="space-y-3 text-sm md:text-base leading-relaxed list-decimal list-inside">
             <li>Select an aircraft on the scope.</li>
-            <li>Dial a heading on the compass; tap altitude/speed chips.</li>
-            <li>Tap ISSUE CLEARANCE (always at the bottom) — or press Enter.</li>
+            <li>Type a command (e.g. UAL123 TL270 A060), or dial + chips, then Issue / Enter.</li>
+            <li>Hold PTT / Space to speak a clearance — tap and type always work too.</li>
             <li>Keep planes 3 miles / 1,000 ft apart; hit the gate to score.</li>
           </ol>
-
-          {onTutorial && (
-            <button
-              type="button"
-              data-testid="how-to-play-aside"
-              onClick={onTutorial}
-              className="w-full bg-cyan-700/40 hover:bg-cyan-600/50 border border-cyan-600 text-cyan-50 font-bold py-3 rounded text-sm"
-            >
-              Launch narrated tutorial
-            </button>
-          )}
 
           <div>
             <div className="text-green-400 font-bold text-sm uppercase tracking-wider mb-2">Command examples</div>

@@ -51,9 +51,11 @@ export function composeTapClearance(input: TapClearanceInput): TapClearanceResul
   const spoken: string[] = [];
   let effectiveTurn: 'LEFT' | 'RIGHT' | null = null;
 
-  if (input.heading != null) {
+  // Untouched dial (null/undefined) must not contribute a heading — never default to 000/360.
+  if (input.heading != null && Number.isFinite(input.heading)) {
     const shown = normalizeHeadingDeg(input.heading);
-    const code = String(shown).padStart(3, '0');
+    // North is always 360 in the typed grammar — never emit H000 (parser synonym, confuses logs).
+    const code = shown === 360 || shown === 0 ? '360' : String(shown).padStart(3, '0');
     const auto = shortestTurn(input.currentHeading, shown);
     effectiveTurn = input.turnForced ?? auto;
     if (effectiveTurn === 'LEFT') {
