@@ -84,9 +84,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'dial-intro',
     narration:
-      'On the right is the tap clearance pad. Drag the compass dial to pick a heading — it snaps every five degrees. The sim picks the shortest turn unless you force LEFT or RIGHT. ISSUE CLEARANCE stays at the bottom — you never need to scroll to find it. Enter also issues.',
+      'On the right is the tap clearance pad. Drag the compass dial to pick a heading — it snaps every five degrees. The sim picks the shortest turn unless you force LEFT or RIGHT. You can also type a command in the line above, like American four twenty-one turn left heading two seven zero. Dial and chips only stage a clearance — tap ISSUE CLEARANCE or press Enter to send it once. ISSUE stays at the bottom so you never scroll to find it.',
     highlight: { kind: 'control', id: 'heading-dial' },
-    dwellMs: 7500,
+    dwellMs: 8500,
   },
   {
     id: 'heading-demo',
@@ -161,9 +161,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'ptt',
     narration:
-      'You can also hold HOLD TO TALK or the Spacebar and speak a clearance. The dial and Issue always work if the mic is busy.',
+      'You can also hold HOLD TO TALK or the Spacebar and speak a clearance. Typing is always available — many controllers prefer the command line. Dial, chips, and PTT all work together; if the mic is busy, type or tap Issue.',
     highlight: { kind: 'control', id: 'ptt-button' },
-    dwellMs: 5500,
+    dwellMs: 6000,
   },
   {
     id: 'gate',

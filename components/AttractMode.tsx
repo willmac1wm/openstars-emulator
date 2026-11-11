@@ -85,8 +85,8 @@ const AttractMode: React.FC<AttractModeProps> = ({ onStart, onTutorial }) => {
               onClick={onTutorial}
               className="flex-1 px-6 py-5 rounded-xl border-2 border-cyan-500 bg-cyan-950/60 text-cyan-100 font-bold text-lg md:text-xl flex flex-col items-center gap-1"
             >
-              <span className="flex items-center gap-2"><Sparkles size={22} /> How to play</span>
-              <span className="text-xs font-normal opacity-80">Narrated · dial · Issue</span>
+              <span className="flex items-center gap-2"><Sparkles size={22} /> HOW TO PLAY</span>
+              <span className="text-xs font-normal opacity-80">Narrated tutorial · dial · type · Issue</span>
             </button>
           )}
         </div>

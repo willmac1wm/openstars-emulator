@@ -110,6 +110,8 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
         setClicking(false);
         await wait(400);
       } else if (demo.kind === 'command') {
+        // Demo issues exactly once via the bridge — do not click the real Issue
+        // button (that would double-fire with leftover dial state).
         setCursorTarget('tap-issue');
         setClicking(true);
         await wait(250);

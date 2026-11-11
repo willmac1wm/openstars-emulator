@@ -2,13 +2,14 @@ import React from 'react';
 import PushToTalk from './PushToTalk';
 import TapCommandPad from './TapCommandPad';
 import { Aircraft } from '../types';
+import type { SpeechResultPayload } from '../services/speechRecognition';
 
 interface ExpoArcadeHUDProps {
   remainingMs: number;
   banner: string | null;
   liveTranscript: string;
   selected: Aircraft | null;
-  onTranscript: (text: string, isFinal: boolean) => void;
+  onTranscript: (payload: SpeechResultPayload) => void;
   onSpeechError: (message: string) => void;
   onIssue: (command: string) => void;
   onFullscreen: () => void;

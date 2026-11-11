@@ -1,5 +1,9 @@
 import { Aircraft } from '../types';
+import { repairAtcTranscript, scoreAtcTranscript } from './atcSpeechNormalize';
 import { AIRLINE_TELEPHONY, speakAltitudeHundreds, speakCallsign, speakDigits, speakHeading, speakKnots } from './phraseology';
+
+/** Auto-issue when scored confidence is at or above this; otherwise leave in the command line. */
+export const SPEECH_AUTO_ISSUE_CONFIDENCE = 0.72;
 
 const WORD_DIGITS: Record<string, string> = {
   zero: '0', oh: '0', o: '0',
@@ -12,6 +16,35 @@ const WORD_DIGITS: Record<string, string> = {
   seven: '7',
   eight: '8', ate: '8',
   nine: '9', niner: '9',
+};
+
+const PHONETIC_LETTER: Record<string, string> = {
+  alpha: 'A', alfa: 'A',
+  bravo: 'B',
+  charlie: 'C',
+  delta: 'D',
+  echo: 'E',
+  foxtrot: 'F',
+  golf: 'G',
+  hotel: 'H',
+  india: 'I',
+  juliet: 'J', juliett: 'J',
+  kilo: 'K',
+  lima: 'L',
+  mike: 'M',
+  november: 'N',
+  oscar: 'O',
+  papa: 'P',
+  quebec: 'Q',
+  romeo: 'R',
+  sierra: 'S',
+  tango: 'T',
+  uniform: 'U',
+  victor: 'V',
+  whiskey: 'W', whisky: 'W',
+  xray: 'X', 'x-ray': 'X',
+  yankee: 'Y',
+  zulu: 'Z',
 };
 
 const TEENS: Record<string, number> = {
@@ -54,17 +87,20 @@ export interface SpeechParseResult {
   command?: string;
   callsign?: string;
   transcript: string;
-  reason?: 'say_again' | 'station_calling' | 'no_aircraft';
+  reason?: 'say_again' | 'station_calling' | 'no_aircraft' | 'ambiguous_callsign';
   message?: string;
+  /** 0–1 score used for auto-issue vs confirm-with-Enter. */
+  confidence?: number;
+}
+
+export interface SpeechAlternative {
+  transcript: string;
+  /** Engine confidence when available (Web Speech). */
+  confidence?: number;
 }
 
 function normalizeTranscript(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/-/g, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return repairAtcTranscript(raw);
 }
 
 function tokenize(text: string): string[] {
@@ -155,8 +191,18 @@ export function spokenAltitudeToHundreds(words: string[]): string | null {
     return String(Math.round(feet / 100));
   }
 
-  // Bare digit altitude like "seven zero"
+  // Bare feet like "8000" / "8000" from "$8000" repair → hundreds
+  if (words.length === 1 && /^\d{4,5}$/.test(words[0])) {
+    const feet = Number(words[0]);
+    if (feet >= 1000 && feet <= 60000) return String(Math.round(feet / 100));
+  }
+
+  // Bare digit altitude like "seven zero" (already hundreds) or group form
   const digits = spokenDigitsSequence(words) || spokenGroupNumber(words);
+  if (digits && /^\d{4,5}$/.test(digits)) {
+    const feet = Number(digits);
+    if (feet >= 1000 && feet <= 60000) return String(Math.round(feet / 100));
+  }
   return digits;
 }
 
@@ -179,13 +225,51 @@ function isNumberWord(w: string): boolean {
     || /^\d+$/.test(w);
 }
 
+export type CallsignMatch =
+  | { kind: 'match'; callsign: string; confidence: number }
+  | { kind: 'ambiguous'; candidates: string[] }
+  | { kind: 'none' };
+
+function matchNovemberCallsign(tokens: string[], aircraft: Aircraft[]): CallsignMatch {
+  if (tokens[0] !== 'november' && tokens[0] !== 'n') return { kind: 'none' };
+  let i = 1;
+  let tail = 'N';
+  while (i < tokens.length) {
+    const w = tokens[i];
+    if (PHONETIC_LETTER[w] && w !== 'november') {
+      tail += PHONETIC_LETTER[w];
+      i += 1;
+      continue;
+    }
+    if (WORD_DIGITS[w] !== undefined || /^\d+$/.test(w)) {
+      const dig = WORD_DIGITS[w] ?? w;
+      tail += dig;
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  if (tail.length < 2) return { kind: 'none' };
+  const exact = aircraft.filter((ac) => ac.callsign === tail);
+  if (exact.length === 1) return { kind: 'match', callsign: exact[0].callsign, confidence: 0.96 };
+  const loose = aircraft.filter((ac) => ac.callsign.startsWith('N') && (
+    ac.callsign === tail || ac.callsign.startsWith(tail) || tail.startsWith(ac.callsign)
+  ));
+  if (loose.length === 1) return { kind: 'match', callsign: loose[0].callsign, confidence: 0.88 };
+  if (loose.length > 1) return { kind: 'ambiguous', candidates: loose.map((a) => a.callsign) };
+  return { kind: 'none' };
+}
+
 export function fuzzyMatchCallsign(
   spoken: string,
   aircraft: Aircraft[],
-): { callsign: string; confidence: number } | null {
+): CallsignMatch {
   const normalized = normalizeTranscript(spoken);
-  if (!normalized || aircraft.length === 0) return null;
+  if (!normalized || aircraft.length === 0) return { kind: 'none' };
   const tokens = tokenize(normalized);
+
+  const november = matchNovemberCallsign(tokens, aircraft);
+  if (november.kind !== 'none') return november;
 
   for (let len = 3; len >= 1; len--) {
     const airline = tokens.slice(0, len).join(' ');
@@ -203,20 +287,23 @@ export function fuzzyMatchCallsign(
     const num = spokenGroupNumber(cleaned);
     if (!num) continue;
     const prefix = icao === 'MEDEVAC' ? 'MEDEVAC' : icao;
-    const exact = aircraft.find((ac) => ac.callsign === `${prefix}${num}`);
-    if (exact) return { callsign: exact.callsign, confidence: 0.98 };
-    const loose = aircraft.find((ac) => ac.callsign.startsWith(prefix) && ac.callsign.endsWith(num));
-    if (loose) return { callsign: loose.callsign, confidence: 0.9 };
+    const exact = aircraft.filter((ac) => ac.callsign === `${prefix}${num}`);
+    if (exact.length === 1) return { kind: 'match', callsign: exact[0].callsign, confidence: 0.98 };
+    if (exact.length > 1) return { kind: 'ambiguous', candidates: exact.map((a) => a.callsign) };
+    const loose = aircraft.filter((ac) => ac.callsign.startsWith(prefix) && ac.callsign.endsWith(num));
+    if (loose.length === 1) return { kind: 'match', callsign: loose[0].callsign, confidence: 0.9 };
+    if (loose.length > 1) return { kind: 'ambiguous', candidates: loose.map((a) => a.callsign) };
   }
 
-  // Fallback: telephony name appears and only one aircraft of that airline
+  // Fallback: telephony name appears — only if exactly one active aircraft of that airline
   for (const [name, icao] of Object.entries(TELEPHONY_TO_ICAO)) {
     if (!normalized.includes(name)) continue;
     const matches = aircraft.filter((ac) => ac.callsign.startsWith(icao === 'MEDEVAC' ? 'MEDEVAC' : icao));
-    if (matches.length === 1) return { callsign: matches[0].callsign, confidence: 0.8 };
+    if (matches.length === 1) return { kind: 'match', callsign: matches[0].callsign, confidence: 0.8 };
+    if (matches.length > 1) return { kind: 'ambiguous', candidates: matches.map((a) => a.callsign) };
   }
 
-  return null;
+  return { kind: 'none' };
 }
 
 function extractInstructions(tokens: string[]): string[] {
@@ -364,57 +451,76 @@ export function extractApproachClearance(tokens: string[]): string[] {
 export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]): SpeechParseResult {
   const transcript = normalizeTranscript(transcriptRaw);
   if (!transcript) {
-    return { ok: false, transcript: '', reason: 'say_again', message: 'Say again' };
+    return { ok: false, transcript: '', reason: 'say_again', message: 'Say again', confidence: 0 };
   }
 
   const tokens = tokenize(transcript);
   const match = fuzzyMatchCallsign(transcript, aircraft);
 
+  if (match.kind === 'ambiguous') {
+    return {
+      ok: false,
+      transcript,
+      reason: 'ambiguous_callsign',
+      message: 'Say again callsign',
+      confidence: 0.2,
+    };
+  }
+
   let instructionTokens = tokens;
-  if (match) {
-    for (let len = 1; len <= 3; len++) {
-      const airline = tokens.slice(0, len).join(' ');
-      if (!TELEPHONY_TO_ICAO[airline]) continue;
-      const numWords = collectWhile(tokens, len, (w) => isNumberWord(w) && w !== 'thousand' && w !== 'hundred');
-      // include only flight-number-like words until a clear instruction keyword
-      let cut = len;
-      const probe = collectWhile(tokens, len, isNumberWord);
-      // Use group parse boundary: stop before climb/descend/turn/heading/speed
-      let j = len;
-      while (j < tokens.length && isNumberWord(tokens[j]) && !['thousand', 'hundred'].includes(tokens[j])) j += 1;
-      // if next is thousand, this was altitude not callsign number — don't strip
-      if (tokens[j] === 'thousand') break;
-      cut = j > len ? j : (numWords.next || len);
-      instructionTokens = tokens.slice(cut);
-      break;
+  if (match.kind === 'match') {
+    if (tokens[0] === 'november' || tokens[0] === 'n') {
+      let j = 1;
+      while (j < tokens.length && (isNumberWord(tokens[j]) || PHONETIC_LETTER[tokens[j]])) {
+        if (['thousand', 'hundred'].includes(tokens[j])) break;
+        if (['climb', 'descend', 'turn', 'heading', 'fly', 'speed', 'reduce', 'increase', 'maintain'].includes(tokens[j])) break;
+        j += 1;
+      }
+      instructionTokens = tokens.slice(j);
+    } else {
+      for (let len = 1; len <= 3; len++) {
+        const airline = tokens.slice(0, len).join(' ');
+        if (!TELEPHONY_TO_ICAO[airline]) continue;
+        const numWords = collectWhile(tokens, len, (w) => isNumberWord(w) && w !== 'thousand' && w !== 'hundred');
+        // Use group parse boundary: stop before climb/descend/turn/heading/speed
+        let j = len;
+        while (j < tokens.length && isNumberWord(tokens[j]) && !['thousand', 'hundred'].includes(tokens[j])) j += 1;
+        // if next is thousand, this was altitude not callsign number — don't strip
+        if (tokens[j] === 'thousand') break;
+        const cut = j > len ? j : (numWords.next || len);
+        instructionTokens = tokens.slice(cut);
+        break;
+      }
     }
   }
 
   const approachParts = extractApproachClearance(instructionTokens.length ? instructionTokens : tokens);
   if (approachParts.some((p) => p.includes('CLEARED'))) {
-    if (!match) {
-      return { ok: false, transcript, reason: 'station_calling', message: 'Station calling, say again' };
+    if (match.kind !== 'match') {
+      return { ok: false, transcript, reason: 'station_calling', message: 'Station calling, say again', confidence: 0.3 };
     }
     return {
       ok: true,
       transcript,
       callsign: match.callsign,
       command: `${match.callsign} ${approachParts.join(' ')}`,
+      confidence: match.confidence,
     };
   }
 
   const instructions = extractInstructions(instructionTokens.length ? instructionTokens : tokens);
 
-  if (!match) {
+  if (match.kind !== 'match') {
     if (instructions.length > 0) {
       return {
         ok: false,
         transcript,
         reason: 'station_calling',
         message: 'Station calling, say again',
+        confidence: 0.3,
       };
     }
-    return { ok: false, transcript, reason: 'say_again', message: 'Say again' };
+    return { ok: false, transcript, reason: 'say_again', message: 'Say again', confidence: 0.1 };
   }
 
   if (instructions.length === 0) {
@@ -424,6 +530,7 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
       callsign: match.callsign,
       reason: 'say_again',
       message: 'Say again',
+      confidence: match.confidence * 0.4,
     };
   }
 
@@ -434,6 +541,7 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
       callsign: match.callsign,
       reason: 'no_aircraft',
       message: 'Say again',
+      confidence: 0.2,
     };
   }
 
@@ -442,7 +550,44 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
     transcript,
     callsign: match.callsign,
     command: `${match.callsign} ${instructions.join(' ')}`,
+    confidence: match.confidence,
   };
+}
+
+/**
+ * Rank Web Speech alternatives (maxAlternatives) against the ATC grammar and
+ * return the best parse. Prefer alternatives that repair + parse cleanly.
+ */
+export function parseBestSpokenClearance(
+  alternatives: SpeechAlternative[],
+  aircraft: Aircraft[],
+): SpeechParseResult {
+  const alts = alternatives.length
+    ? alternatives
+    : [{ transcript: '', confidence: 0 }];
+
+  let best: SpeechParseResult | null = null;
+  let bestScore = -Infinity;
+
+  for (let i = 0; i < alts.length; i++) {
+    const alt = alts[i];
+    const parsed = parseSpokenClearance(alt.transcript, aircraft);
+    const grammar = scoreAtcTranscript(alt.transcript);
+    const engine = typeof alt.confidence === 'number' ? alt.confidence : (i === 0 ? 0.55 : 0.35);
+    const parseBoost = parsed.ok ? 2.5 : (parsed.reason === 'ambiguous_callsign' ? 0.4 : 0);
+    const conf = (parsed.confidence ?? 0);
+    const score = grammar * 1.2 + engine + parseBoost + conf + (i === 0 ? 0.15 : 0);
+    const combined: SpeechParseResult = {
+      ...parsed,
+      confidence: Math.max(0, Math.min(1, (conf * 0.55) + (engine * 0.25) + (parsed.ok ? 0.2 : 0) + (grammar * 0.03))),
+    };
+    if (score > bestScore) {
+      bestScore = score;
+      best = combined;
+    }
+  }
+
+  return best ?? { ok: false, transcript: '', reason: 'say_again', message: 'Say again', confidence: 0 };
 }
 
 export function buildTapApproachClearance(

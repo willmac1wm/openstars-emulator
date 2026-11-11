@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff } from 'lucide-react';
-import { createSpeechRecognition, isSpeechRecognitionSupported } from '../services/speechRecognition';
+import { createSpeechRecognition, isSpeechRecognitionSupported, SpeechResultPayload } from '../services/speechRecognition';
 
 interface PushToTalkProps {
   disabled?: boolean;
   /** Shorter control for classroom panel heights (1024×640). */
   compact?: boolean;
-  onTranscript: (text: string, isFinal: boolean) => void;
+  onTranscript: (payload: SpeechResultPayload) => void;
   onError?: (message: string) => void;
 }
 
@@ -17,8 +17,8 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript
 
   useEffect(() => {
     handleRef.current = createSpeechRecognition({
-      onPartial: (text) => onTranscript(text, false),
-      onFinal: (text) => onTranscript(text, true),
+      onPartial: (payload) => onTranscript(payload),
+      onFinal: (payload) => onTranscript(payload),
       onError: (message) => onError?.(message),
       onEnd: () => setHolding(false),
     });

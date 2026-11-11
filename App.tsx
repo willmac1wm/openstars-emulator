@@ -26,7 +26,12 @@ import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilot
 import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
 import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
-import { parseSpokenClearance } from './services/speechCommand';
+import {
+  parseBestSpokenClearance,
+  SPEECH_AUTO_ISSUE_CONFIDENCE,
+} from './services/speechCommand';
+import type { SpeechResultPayload } from './services/speechRecognition';
+import type { SpokenCommandFill } from './components/ControlPanel';
 import {
   ARCADE_DURATION_MS,
   ATTRACT_IDLE_MS,
@@ -90,6 +95,8 @@ const App: React.FC = () => {
   const [arcadeRemainingMs, setArcadeRemainingMs] = useState(ARCADE_DURATION_MS);
   const [arcadeBanner, setArcadeBanner] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [spokenFill, setSpokenFill] = useState<SpokenCommandFill | null>(null);
+  const spokenFillTokenRef = useRef(0);
   const [showArcadeSummary, setShowArcadeSummary] = useState(false);
   const [conflictAlarm, setConflictAlarm] = useState(false);
   const [showVtfSetup, setShowVtfSetup] = useState(false);
@@ -373,7 +380,16 @@ const App: React.FC = () => {
   }, [addLog, clearArcadeTimers]);
 
   // --- Command Parser ---
+  const lastIssuedRef = useRef<{ cmd: string; at: number } | null>(null);
   const handleCommand = (cmdRaw: string) => {
+    const cmd = cmdRaw.trim().toUpperCase();
+    if (!cmd) return;
+    // Suppress Enter+Issue / double-submit of the same clearance (one command → one readback).
+    const now = Date.now();
+    const prev = lastIssuedRef.current;
+    if (prev && prev.cmd === cmd && now - prev.at < 450) return;
+    lastIssuedRef.current = { cmd, at: now };
+
     primePilotVoice();
     // State applies synchronously; speakPilot is fire-and-forget (never awaited).
     const result = issueControllerCommand(aircraft, selectedId, cmdRaw, {
@@ -391,31 +407,47 @@ const App: React.FC = () => {
   handleCommandRef.current = handleCommand;
 
   const spokenCommittedRef = useRef<string | null>(null);
-  const handleSpokenTranscript = useCallback((text: string, isFinal: boolean) => {
+  /** One utterance → at most one command. Interim results only update the live transcript. */
+  const handleSpokenTranscript = useCallback((payload: SpeechResultPayload) => {
+    const text = payload.transcript;
     setLiveTranscript(text);
+    if (!payload.isFinal) return;
     if (!text.trim()) return;
-    const spoken = parseSpokenClearance(text, aircraftRef.current);
-    // Act on a complete parse as soon as interim text is good enough — don't wait
-    // for SpeechRecognition's final-result latency after the teacher releases PTT.
-    if (!spoken.ok) {
-      if (!isFinal) return;
+
+    const alts = payload.alternatives?.length
+      ? payload.alternatives
+      : [{ transcript: text, confidence: 0 }];
+    const spoken = parseBestSpokenClearance(alts, aircraftRef.current);
+
+    if (!spoken.ok || !spoken.command) {
+      // Unparsed / ambiguous → say again once — never "unable".
       const line = spoken.message || 'Say again';
       addLog(line, 'pilot');
       speakPilot(line, spoken.callsign || 'PILOT');
       spokenCommittedRef.current = null;
       return;
     }
-    if (!spoken.command) return;
+
     const commitKey = spoken.command.toLowerCase();
     if (spokenCommittedRef.current === commitKey) return;
     spokenCommittedRef.current = commitKey;
-    handleCommandRef.current(spoken.command);
-    if (isFinal) {
-      // Allow the next distinct clearance after a final result settles.
-      window.setTimeout(() => {
-        if (spokenCommittedRef.current === commitKey) spokenCommittedRef.current = null;
-      }, 800);
-    }
+
+    const confidence = spoken.confidence ?? 0;
+    const pendingConfirm = confidence < SPEECH_AUTO_ISSUE_CONFIDENCE;
+    spokenFillTokenRef.current += 1;
+    const token = spokenFillTokenRef.current;
+    setSpokenFill({
+      command: spoken.command,
+      confidence,
+      pendingConfirm,
+      token,
+    });
+
+    // High confidence: ControlPanel shows ~1s then auto-issues.
+    // Low confidence: stays in the command line for Enter confirm.
+    window.setTimeout(() => {
+      if (spokenCommittedRef.current === commitKey) spokenCommittedRef.current = null;
+    }, 900);
   }, [addLog]);
 
   const handleSpeechError = useCallback((message: string) => {
@@ -823,8 +855,10 @@ const App: React.FC = () => {
   }, [vtfActive, vtfState.events.length]);
 
   const vtfSpokenCommittedRef = useRef<string | null>(null);
-  const handleVtfSpoken = useCallback((text: string, isFinal: boolean) => {
+  const handleVtfSpoken = useCallback((payload: SpeechResultPayload) => {
+    const text = payload.transcript;
     setVtfTranscript(text);
+    if (!payload.isFinal) return;
     if (!text.trim()) return;
     const legacy = vtfState.aircraft.map((ac) => ({
       id: ac.id,
@@ -847,9 +881,11 @@ const App: React.FC = () => {
       destination: 'SOU',
       dataBlockDir: 45,
     }));
-    const spoken = parseSpokenClearance(text, legacy);
+    const alts = payload.alternatives?.length
+      ? payload.alternatives
+      : [{ transcript: text, confidence: 0 }];
+    const spoken = parseBestSpokenClearance(alts, legacy);
     if (!spoken.ok || !spoken.command) {
-      if (!isFinal) return;
       speakPilot(spoken.message || 'Say again', spoken.callsign || 'PILOT');
       vtfSpokenCommittedRef.current = null;
       return;
@@ -858,11 +894,9 @@ const App: React.FC = () => {
     if (vtfSpokenCommittedRef.current === commitKey) return;
     vtfSpokenCommittedRef.current = commitKey;
     vtfDispatch({ type: 'COMMAND', raw: spoken.command });
-    if (isFinal) {
-      window.setTimeout(() => {
-        if (vtfSpokenCommittedRef.current === commitKey) vtfSpokenCommittedRef.current = null;
-      }, 800);
-    }
+    window.setTimeout(() => {
+      if (vtfSpokenCommittedRef.current === commitKey) vtfSpokenCommittedRef.current = null;
+    }, 800);
   }, [vtfState.aircraft, vtfDispatch]);
 
   return (
@@ -1036,6 +1070,10 @@ const App: React.FC = () => {
         statusMessage={statusMessage}
         onMoveLabel={handleMoveDataBlock}
         expoMode={playMode === 'expo'}
+        spokenFill={spokenFill}
+        onSpokenFillConsumed={(token) => {
+          setSpokenFill((prev) => (prev && prev.token === token ? null : prev));
+        }}
         arcadeHud={playMode === 'expo' && gameState === SimulationState.RUNNING ? (
           <ExpoArcadeHUD
             remainingMs={arcadeRemainingMs}
