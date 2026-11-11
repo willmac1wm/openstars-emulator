@@ -327,7 +327,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             )}
           </div>
         )}
-        {!arcadeActive && <VoiceBar />}
+        <VoiceBar />
       </div>
 
       {/* 3. TYPED COMMAND LINE — always visible (Expo Arcade included); compact for 1024×640 */}

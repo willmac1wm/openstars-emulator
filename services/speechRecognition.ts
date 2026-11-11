@@ -1,18 +1,14 @@
 /**
  * Free in-browser speech recognition for Expo Mode.
  *
- * Primary: Web Speech API (SpeechRecognition / webkitSpeechRecognition).
- * Available in Chromium-based browsers (Chrome, Edge). Safari support is
- * limited; Firefox generally lacks it. Latency is low and there is no model
- * download, which matters on a booth laptop already loading Kokoro TTS (~92MB).
+ * Primary: Web Speech API (SpeechRecognition / webkitSpeechRecognition) with
+ * ATC SpeechGrammarList hints when supported.
  *
- * Whisper (transformers.js whisper-tiny/base.en) remains an opt-in future path:
- * another 40–150MB download plus WASM warm-up on top of Kokoro is too heavy
- * for default walk-up load. Prefer lazy-load behind "Accurate speech (beta)"
- * only after ATC post-processing + alternatives scoring lands. Typed input
- * and tap-to-command remain the offline fallback when SpeechRecognition is
- * missing or the mic is denied.
+ * Opt-in Accurate speech (beta): local Whisper via transformers.js — see webWhisper.ts.
+ * Typed input and tap-to-command remain the always-available fallback.
  */
+
+import { buildAtcSpeechGrammarList } from './speechGrammar';
 
 export type SpeechEngine = 'webspeech' | 'unavailable';
 
@@ -22,6 +18,8 @@ export interface SpeechRecognitionHandle {
   start: () => void;
   stop: () => void;
   abort: () => void;
+  /** Refresh grammar bias for the current scope (callsigns change). */
+  setCallsigns?: (callsigns: string[]) => void;
 }
 
 export interface SpeechResultPayload {
@@ -59,11 +57,23 @@ function collectAlternatives(result: SpeechRecognitionResult): Array<{ transcrip
   return out;
 }
 
+function applyGrammars(recognition: SpeechRecognition, callsigns: string[]) {
+  const list = buildAtcSpeechGrammarList(callsigns);
+  if (!list) return;
+  try {
+    recognition.grammars = list;
+  } catch {
+    /* some engines reject grammars */
+  }
+}
+
 export function createSpeechRecognition(handlers: {
   onPartial?: (payload: SpeechResultPayload) => void;
   onFinal?: (payload: SpeechResultPayload) => void;
   onError?: (message: string) => void;
   onEnd?: () => void;
+  /** Initial scope callsigns for SpeechGrammarList bias. */
+  callsigns?: string[];
 }): SpeechRecognitionHandle {
   const Ctor = getSpeechCtor();
   if (!Ctor) {
@@ -76,11 +86,13 @@ export function createSpeechRecognition(handlers: {
     };
   }
 
+  let callsigns = handlers.callsigns ? [...handlers.callsigns] : [];
   const recognition = new Ctor();
   recognition.lang = 'en-US';
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.maxAlternatives = 5;
+  applyGrammars(recognition, callsigns);
 
   recognition.onresult = (event: SpeechRecognitionEvent) => {
     let interim = '';
@@ -94,7 +106,6 @@ export function createSpeechRecognition(handlers: {
       const text = alts[0]?.transcript ?? '';
       if (result.isFinal) {
         finalText += `${text} `;
-        // Prefer alternatives from the last final chunk (primary utterance).
         finalAlts = alts.length ? alts : finalAlts;
       } else {
         interim += text;
@@ -111,7 +122,6 @@ export function createSpeechRecognition(handlers: {
     }
     if (finalText.trim()) {
       const primary = finalText.trim();
-      // Merge: if alternatives are per-result for one chunk, use them; ensure primary is first.
       const alts = finalAlts.length
         ? finalAlts
         : [{ transcript: primary, confidence: 0 }];
@@ -139,7 +149,12 @@ export function createSpeechRecognition(handlers: {
   return {
     engine: 'webspeech',
     supported: true,
+    setCallsigns: (next) => {
+      callsigns = [...next];
+      applyGrammars(recognition, callsigns);
+    },
     start: () => {
+      applyGrammars(recognition, callsigns);
       try {
         recognition.start();
       } catch {

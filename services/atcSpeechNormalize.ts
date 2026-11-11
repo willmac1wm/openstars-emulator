@@ -31,12 +31,27 @@ const REPAIRS: Array<[RegExp, string]> = [
   // Speed phrasing
   [/\breduce\s+speed\s+to\b/g, 'reduce speed'],
   [/\bincrease\s+speed\s+to\b/g, 'increase speed'],
+  [/\breduce\s+to\b/g, 'reduce speed'],
+  [/\bincrease\s+to\b(?=\s+(?:\d|(?:one|two|three|four|five|six|seven|eight|nine|niner|two\s+hundred)))/g, 'increase speed'],
 
-  // Money / punctuation artifacts for altitudes
+  // Stuck compounds Web Speech sometimes emits
+  [/\bclimband\b/g, 'climb and'],
+  [/\bdescendand\b/g, 'descend and'],
+  [/\bturnleft\b/g, 'turn left'],
+  [/\bturnright\b/g, 'turn right'],
+  [/\bflyheading\b/g, 'fly heading'],
+
+  // Money / punctuation / spoken "$" artifacts for altitudes
   [/\$(\d[\d,]*)/g, '$1'],
+  [/\bdollars?\b/g, ''],
+  [/\bhash\b/g, ''],
+  [/\bnumber\s+sign\b/g, ''],
   [/\b(\d),(\d{3})\b/g, '$1$2'],
   [/\b(\d+)\s*feet?\b/g, '$1'],
   [/\beight\s+thou\b/g, 'eight thousand'],
+  [/\bsix\s+thou\b/g, 'six thousand'],
+  [/\bseven\s+thou\b/g, 'seven thousand'],
+  [/\bnine\s+thou\b/g, 'nine thousand'],
 ];
 
 /** Apply ATC misrecognition repairs; returns lowercase cleaned text. */
