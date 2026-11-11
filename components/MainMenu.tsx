@@ -18,7 +18,7 @@ const MODES: Array<{
   desc: string;
   badge?: string;
 }> = [
-  { id: 'Expo', label: 'EXPO ARCADE', desc: '3 min · PTT voice · waves · high scores', badge: 'BOOTHS' },
+  { id: 'Expo', label: 'EXPO ARCADE', desc: '5 min · fast traffic · PTT voice · waves', badge: 'BOOTHS' },
   { id: 'Easy', label: 'TRAINEE', desc: '4 aircraft · classroom starter' },
   { id: 'Medium', label: 'CONTROLLER', desc: '8 aircraft · standard lesson' },
   { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
@@ -71,18 +71,34 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
 
           <VoicePreloadBanner />
 
-          <button
-            data-testid="expo-start"
-            onClick={() => handleStart('Expo')}
-            className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-2xl md:text-3xl py-6 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center gap-1"
-          >
-            <span className="flex items-center gap-3"><Play fill="black" size={28} /> TRY THE SCOPE</span>
-            <span className="text-xs md:text-sm font-normal tracking-wide opacity-80">
-              {voicesLoading
-                ? 'Voices still loading — start anyway?'
-                : '3-min arcade · voice · projector friendly'}
-            </span>
-          </button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              data-testid="expo-start"
+              onClick={() => handleStart('Expo')}
+              className="w-full bg-green-500 hover:bg-green-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_30px_rgba(20,241,149,0.45)] transition-all flex flex-col items-center justify-center gap-1"
+            >
+              <span className="flex items-center gap-2"><Play fill="black" size={24} /> TRY THE SCOPE</span>
+              <span className="text-xs font-normal tracking-wide opacity-80">
+                {voicesLoading
+                  ? 'Voices still loading — start anyway?'
+                  : '5-min arcade · fast jets · voice'}
+              </span>
+            </button>
+
+            {onOpenVtf && (
+              <button
+                type="button"
+                data-testid="vtf-menu"
+                onClick={onOpenVtf}
+                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1"
+              >
+                <span className="flex items-center gap-2"><Play fill="black" size={24} /> VECTOR TO FINAL</span>
+                <span className="text-xs font-normal tracking-wide opacity-80">
+                  ILS &amp; VOR intercept · localizer · wake
+                </span>
+              </button>
+            )}
+          </div>
           {voicesLoading && (
             <button
               type="button"
@@ -149,6 +165,23 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
                 {difficulty === mode.id && <ChevronRight className="text-green-500" />}
               </button>
             ))}
+            {onOpenVtf && (
+              <button
+                type="button"
+                data-testid="mode-vtf"
+                onClick={onOpenVtf}
+                className="w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left bg-cyan-950/30 border-cyan-600/80 text-white hover:bg-cyan-900/40 shadow-[0_0_15px_rgba(6,182,212,0.12)]"
+              >
+                <div>
+                  <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-cyan-300">
+                    VECTOR TO FINAL
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500 text-cyan-200">ILS / VOR</span>
+                  </div>
+                  <div className="text-xs md:text-sm text-cyan-100/70">Final approach course intercept · FAF · wake separation</div>
+                </div>
+                <ChevronRight className="text-cyan-400" />
+              </button>
+            )}
           </div>
 
           <button
@@ -170,17 +203,6 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
               className="w-full border border-amber-700/60 text-amber-200 hover:bg-amber-950/40 font-bold py-3 rounded text-sm"
             >
               Start with basic voice
-            </button>
-          )}
-
-          {onOpenVtf && (
-            <button
-              type="button"
-              data-testid="vtf-menu"
-              onClick={onOpenVtf}
-              className="w-full bg-cyan-900/40 hover:bg-cyan-800/50 border border-cyan-600 text-cyan-100 font-bold text-lg py-4 rounded transition-all"
-            >
-              VECTOR TO FINAL · ILS / VOR
             </button>
           )}
         </div>

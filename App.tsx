@@ -278,14 +278,14 @@ const App: React.FC = () => {
     setArcadeBanner('SHIFT OPEN — clear the gates. Hold PTT to talk.');
     setLiveTranscript('');
     setConflictAlarm(false);
-    setTimeScale(4);
+    setTimeScale(6);
     identifyUser('guest-arcade');
     const firstId = scenario.aircraft[0]?.id ?? null;
     setAircraft(scenario.aircraft.map((ac, index) => ({ ...ac, isSelected: index === 0 })));
     setSelectedId(firstId);
     setGameState(SimulationState.RUNNING);
     setStatusMessage(`ARCADE: ${plan.name}`);
-    setMessages([{ id: 1, text: 'EXPO ARCADE SHIFT — 3 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
+    setMessages([{ id: 1, text: 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
     setScore(0);
     setStats({ ...INITIAL_STATS, startTime: Date.now() });
     incidentCooldowns.current.clear();
@@ -322,7 +322,7 @@ const App: React.FC = () => {
       const line = curveballPilotPhrase(plan.curveball.kind);
       if (line) {
         addLog(line, 'pilot');
-        speakPilot(line, plan.curveball.callsign || 'MEDEVAC1');
+        speakPilot(line, plan.curveball.callsign || 'AAL421');
       }
     }, plan.curveball.atMs);
 
@@ -692,7 +692,7 @@ const App: React.FC = () => {
   const selectedAircraft = aircraft.find(ac => ac.id === selectedId) || null;
 
   const finishArcadeSummary = () => {
-    returnToMenu({ attract: true });
+    returnToMenu({ attract: false });
   };
 
   const startVtf = (opts: { seedLabel: string; approachKind: ApproachKind; wind: WindState }) => {

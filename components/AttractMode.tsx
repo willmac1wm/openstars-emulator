@@ -59,7 +59,7 @@ const AttractMode: React.FC<AttractModeProps> = ({ onStart }) => {
             <span className="text-sm font-normal opacity-80">Voices still loading — start anyway?</span>
           )}
         </div>
-        <div className="text-gray-600 text-xs md:text-sm">Any key or tap starts a 3-minute arcade shift</div>
+        <div className="text-gray-600 text-xs md:text-sm">Any key or tap starts a 5-minute arcade shift</div>
       </div>
     </button>
   );
