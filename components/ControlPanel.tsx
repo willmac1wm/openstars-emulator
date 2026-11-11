@@ -195,83 +195,93 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <VoiceBar />
       </div>
 
-      {/* 3. INPUT BAR (Middle) */}
-      <form onSubmit={handleSubmit} className="p-2 bg-gray-900 border-b border-gray-800 shrink-0 space-y-2">
-        <div className="flex gap-1">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-              <span className="text-green-600 font-bold text-xs">{'>'}</span>
+      {/* 3. INPUT BAR — hidden in arcade (tap pad + PTT replace typing; frees height for Issue) */}
+      {!(arcadeHud && isRunning) && (
+        <form onSubmit={handleSubmit} className="p-2 bg-gray-900 border-b border-gray-800 shrink-0 space-y-2">
+          <div className="flex gap-1">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                <span className="text-green-600 font-bold text-xs">{'>'}</span>
+              </div>
+              <input
+                ref={inputRef}
+                data-testid="command-input"
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                inputMode={showSoftKeyboard ? 'none' : 'text'}
+                className="block w-full pl-5 pr-8 py-2 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-600 focus:outline-none focus:border-green-500 font-mono uppercase tracking-wider text-base"
+                placeholder="COMMAND"
+                disabled={!isRunning}
+                autoComplete="off"
+              />
             </div>
-            <input
-              ref={inputRef}
-              data-testid="command-input"
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              inputMode={showSoftKeyboard ? 'none' : 'text'}
-              className="block w-full pl-5 pr-8 py-2 bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-600 focus:outline-none focus:border-green-500 font-mono uppercase tracking-wider text-base"
-              placeholder="COMMAND"
-              disabled={!isRunning}
-              autoComplete="off"
-            />
+            <button
+              type="button"
+              onClick={() => setShowSoftKeyboard(!showSoftKeyboard)}
+              className={`px-2 rounded border ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+            >
+              <KeyboardIcon size={18} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowSoftKeyboard(!showSoftKeyboard)}
-            className={`px-2 rounded border ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
-          >
-            <KeyboardIcon size={18} />
-          </button>
-        </div>
 
-        {expoMode && isRunning && !arcadeHud && (
-          <div className="grid grid-cols-2 gap-1" data-testid="expo-chips">
-            {[
-              {
-                label: 'TURN LEFT',
-                command: selectedAircraft
-                  ? `${selectedAircraft.callsign} TL${padHeading(selectedAircraft.heading - 45)}`
-                  : null,
-              },
-              {
-                label: 'TURN RIGHT',
-                command: selectedAircraft
-                  ? `${selectedAircraft.callsign} TR${padHeading(selectedAircraft.heading + 45)}`
-                  : null,
-              },
-              {
-                label: 'SET EXIT ALT',
-                command: selectedAircraft
-                  ? `${selectedAircraft.callsign} A${String(legalAltitude(selectedAircraft.destination, selectedAircraft.altitude)).padStart(3, '0')}`
-                  : null,
-              },
-              {
-                label: 'SPEED 210',
-                command: selectedAircraft ? `${selectedAircraft.callsign} S210` : null,
-              },
-            ].map((chip) => (
-              <button
-                key={chip.label}
-                type="button"
-                disabled={!chip.command}
-                onClick={() => chip.command && onCommand(chip.command)}
-                className="bg-amber-900/40 hover:bg-amber-800/60 disabled:opacity-40 text-amber-100 border border-amber-700/60 rounded py-2 text-[11px] font-bold tracking-wide"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </form>
+          {expoMode && isRunning && !arcadeHud && (
+            <div className="grid grid-cols-2 gap-1" data-testid="expo-chips">
+              {[
+                {
+                  label: 'TURN LEFT',
+                  command: selectedAircraft
+                    ? `${selectedAircraft.callsign} TL${padHeading(selectedAircraft.heading - 45)}`
+                    : null,
+                },
+                {
+                  label: 'TURN RIGHT',
+                  command: selectedAircraft
+                    ? `${selectedAircraft.callsign} TR${padHeading(selectedAircraft.heading + 45)}`
+                    : null,
+                },
+                {
+                  label: 'SET EXIT ALT',
+                  command: selectedAircraft
+                    ? `${selectedAircraft.callsign} A${String(legalAltitude(selectedAircraft.destination, selectedAircraft.altitude)).padStart(3, '0')}`
+                    : null,
+                },
+                {
+                  label: 'SPEED 210',
+                  command: selectedAircraft ? `${selectedAircraft.callsign} S210` : null,
+                },
+              ].map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  disabled={!chip.command}
+                  onClick={() => chip.command && onCommand(chip.command)}
+                  className="bg-amber-900/40 hover:bg-amber-800/60 disabled:opacity-40 text-amber-100 border border-amber-700/60 rounded py-2 text-[11px] font-bold tracking-wide"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </form>
+      )}
 
+      {/* Arcade tap pad: flex so ISSUE CLEARANCE stays visible without panel scroll */}
       {arcadeHud && isRunning && (
-        <div className="p-2 border-b border-gray-800 bg-black/40 shrink-0 max-h-[45%] overflow-y-auto">
+        <div
+          className="flex-1 min-h-0 flex flex-col p-2 border-b border-gray-800 bg-black/40 overflow-hidden"
+          data-testid="arcade-hud-slot"
+        >
           {arcadeHud}
         </div>
       )}
 
-      {/* 4. BOTTOM SPLIT SECTION (Mobile Portrait) vs STACK (Desktop) */}
-      <div className="flex-1 min-h-0 flex flex-row lg:flex-col overflow-hidden">
+      {/* 4. BOTTOM SPLIT SECTION — shrink comm log when arcade HUD owns the height */}
+      <div
+        className={`${
+          arcadeHud && isRunning ? 'shrink-0 max-h-24 lg:max-h-28' : 'flex-1'
+        } min-h-0 flex flex-row lg:flex-col overflow-hidden`}
+      >
 
         {/* COMM LOG (Left on Mobile, Top on Desktop) */}
         <div className={`flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 ${showSoftKeyboard && !arcadeHud ? 'w-1/2 lg:w-full' : 'w-full'}`}>

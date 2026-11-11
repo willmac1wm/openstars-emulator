@@ -471,6 +471,7 @@ export function buildTapApproachClearance(
   return { command, phraseology };
 }
 
+/** @deprecated Prefer composeTapClearance from services/tapClearance — kept for callers that pass forced turn. */
 export function buildTapClearance(
   callsign: string,
   opts: { turn?: 'LEFT' | 'RIGHT' | null; heading?: number; altitudeHundreds?: number; speed?: number },
@@ -504,6 +505,6 @@ export function buildTapClearance(
   const telephony = speakCallsign(callsign);
   return {
     command: `${callsign} ${parts.join(' ')}`.trim(),
-    phraseology: `${telephony}, ${spoken.join(', ')}`,
+    phraseology: parts.length ? `${telephony}, ${spoken.join(', ')}` : telephony,
   };
 }

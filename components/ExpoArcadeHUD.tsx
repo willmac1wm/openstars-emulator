@@ -32,9 +32,18 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
   onFullscreen,
 }) => {
   return (
-    <div className="w-full space-y-2" data-testid="expo-arcade-hud">
-      <div className="flex items-center gap-2">
-        <div className={`font-mono text-2xl font-bold px-3 py-1 rounded border ${remainingMs < 30000 ? 'text-red-400 border-red-700' : 'text-green-300 border-green-800'}`}>
+    <div
+      className="w-full h-full min-h-0 flex flex-col gap-1.5"
+      data-testid="expo-arcade-hud"
+    >
+      <div className="flex items-center gap-2 shrink-0">
+        <div
+          className={`font-mono text-xl font-bold px-2 py-0.5 rounded border ${
+            remainingMs < 30000
+              ? 'text-red-400 border-red-700'
+              : 'text-green-300 border-green-800'
+          }`}
+        >
           {formatClock(remainingMs)}
         </div>
         <button
@@ -47,19 +56,23 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
       </div>
 
       {banner && (
-        <div className="bg-amber-500/20 border border-amber-400 text-amber-100 text-sm font-bold px-3 py-2 rounded animate-in fade-in">
+        <div className="shrink-0 bg-amber-500/20 border border-amber-400 text-amber-100 text-xs font-bold px-2 py-1 rounded">
           {banner}
         </div>
       )}
 
-      <PushToTalk onTranscript={onTranscript} onError={onSpeechError} />
+      <div className="shrink-0">
+        <PushToTalk compact onTranscript={onTranscript} onError={onSpeechError} />
+      </div>
 
+      {/* Collapsed transcript — single line so Issue stays on-screen */}
       <div
         data-testid="live-transcript"
-        className="min-h-[3rem] bg-black border border-cyan-900 rounded px-3 py-2 text-cyan-200 text-sm font-mono"
+        className="shrink-0 h-7 overflow-hidden bg-black border border-cyan-900 rounded px-2 py-1 text-cyan-200 text-[11px] font-mono truncate"
         aria-live="polite"
+        title={liveTranscript || undefined}
       >
-        {liveTranscript || 'Hold PTT and speak a clearance…'}
+        {liveTranscript || 'Hold PTT and speak…'}
       </div>
 
       <TapCommandPad aircraft={selected} onIssue={onIssue} />
