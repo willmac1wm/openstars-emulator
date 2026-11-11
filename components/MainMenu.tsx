@@ -4,6 +4,7 @@ import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
 import { getVoiceRuntime, subscribeVoiceRuntime, useBasicVoiceNow, VoiceRuntime } from '../services/pilotVoice';
 import VoicePreloadBanner from './VoicePreloadBanner';
+import { ENABLE_VECTOR_TO_FINAL } from '../services/features';
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
@@ -30,6 +31,8 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
   const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
   const [startHint, setStartHint] = useState<string | null>(null);
+  // Keep VTF off production until Will green-lights it (code remains for the polish PR).
+  const showVtf = ENABLE_VECTOR_TO_FINAL && Boolean(onOpenVtf);
 
   useEffect(() => {
     if (urlSeed) setSeedInput(urlSeed);
@@ -56,7 +59,13 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
   };
 
   return (
-    <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center text-green-500 font-mono p-3 md:p-6 select-none overflow-y-auto">
+    // Scroll from the true top at every viewport height. Do NOT use justify-center on the
+    // overflow container — that clips the logo / voice banner above the fold on short windows.
+    <div
+      data-testid="main-menu"
+      className="absolute inset-0 z-50 bg-black text-green-500 font-mono select-none overflow-y-auto overscroll-contain touch-pan-y"
+    >
+      <div className="w-full min-h-full flex flex-col items-center justify-start p-3 md:p-6 py-6 md:py-8">
       <div className="w-full max-w-5xl grid gap-4 lg:grid-cols-[1.1fr_0.9fr] items-start">
         <div className="space-y-4">
           <div className="text-center lg:text-left space-y-2">
@@ -85,7 +94,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
               </span>
             </button>
 
-            {onOpenVtf && (
+            {showVtf && (
               <button
                 type="button"
                 data-testid="vtf-menu"
@@ -165,7 +174,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
                 {difficulty === mode.id && <ChevronRight className="text-green-500" />}
               </button>
             ))}
-            {onOpenVtf && (
+            {showVtf && (
               <button
                 type="button"
                 data-testid="mode-vtf"
@@ -238,6 +247,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onStart, onOpenVtf, highScore, acti
             </div>
           </div>
         </aside>
+      </div>
       </div>
     </div>
   );

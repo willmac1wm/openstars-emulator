@@ -18,6 +18,7 @@ import type { ApproachKind, WindState } from './sim/types';
 import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { issueControllerCommand } from './services/commandIssue';
+import { ENABLE_VECTOR_TO_FINAL } from './services/features';
 import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
 import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
@@ -797,24 +798,31 @@ const App: React.FC = () => {
   }, [vtfState.aircraft, vtfDispatch]);
 
   return (
-    <div className="flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white overflow-hidden touch-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] relative" onContextMenu={(e) => e.preventDefault()}>
+    <div
+      className={`flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white relative pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] ${
+        gameState === SimulationState.MENU && !showAttract
+          ? 'overflow-hidden'
+          : 'overflow-hidden touch-none'
+      }`}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       
-      {gameState === SimulationState.MENU && !showAttract && !showVtfSetup && (
+      {gameState === SimulationState.MENU && !showAttract && !(ENABLE_VECTOR_TO_FINAL && showVtfSetup) && (
         <MainMenu
           onStart={startGame}
-          onOpenVtf={() => setShowVtfSetup(true)}
+          onOpenVtf={ENABLE_VECTOR_TO_FINAL ? () => setShowVtfSetup(true) : undefined}
           highScore={highScore}
           activeSeed={scenarioSeed}
         />
       )}
-      {showVtfSetup && (
+      {ENABLE_VECTOR_TO_FINAL && showVtfSetup && (
         <VtfSetup
           defaultSeed={scenarioSeed || 'vtf-1'}
           onCancel={() => setShowVtfSetup(false)}
           onStart={startVtf}
         />
       )}
-      {vtfActive && vtfState.approach && (
+      {ENABLE_VECTOR_TO_FINAL && vtfActive && vtfState.approach && (
         <div className="absolute inset-0 z-[55] flex flex-col landscape:flex-row bg-black" data-testid="vtf-game">
           <div className="flex-1 min-h-0 relative">
             <ApproachScope
