@@ -113,9 +113,9 @@ export const generateScenario = async (difficulty: string, seedLabel?: string | 
         let maxDist = 0;
 
         if (index < 5) {
-            // Wave 1: Immediate arrivals
-            minDist = GATE_RADIUS + 10;
-            maxDist = GATE_RADIUS + 40;
+            // Wave 1: outer-ring inbound (never mid-scope)
+            minDist = GATE_RADIUS + 45;
+            maxDist = GATE_RADIUS + 95;
         } else if (index < 10) {
             // Wave 2: Mid-range
             minDist = GATE_RADIUS + 100; // ~450px (45NM)
