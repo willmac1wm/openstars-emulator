@@ -25,7 +25,13 @@ import { ENABLE_VECTOR_TO_FINAL } from './services/features';
 import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
 import { playFailTone, playSuccessChime, unlockSoundEffects } from './services/soundEffects';
 import { DEFAULT_SCENARIO_SEEDS } from './services/localScenario';
-import { readSeedFromLocation, resolveSeedInput, writeSeedToUrl } from './services/scenarioSeed';
+import {
+  readSeedFromLocation,
+  readVtfModeFromLocation,
+  resolveSeedInput,
+  writeSeedToUrl,
+  writeVtfModeToUrl,
+} from './services/scenarioSeed';
 import { parseSpokenClearance } from './services/speechCommand';
 import {
   ARCADE_DURATION_MS,
@@ -92,8 +98,11 @@ const App: React.FC = () => {
   const [liveTranscript, setLiveTranscript] = useState('');
   const [showArcadeSummary, setShowArcadeSummary] = useState(false);
   const [conflictAlarm, setConflictAlarm] = useState(false);
-  const [showVtfSetup, setShowVtfSetup] = useState(false);
+  const [urlVtfPreview] = useState(() => readVtfModeFromLocation());
+  const [showVtfSetup, setShowVtfSetup] = useState(() => readVtfModeFromLocation());
   const [vtfActive, setVtfActive] = useState(false);
+  /** Menu stays behind ENABLE_VECTOR_TO_FINAL; ?mode=vtf unlocks setup/game for preview. */
+  const vtfUnlocked = ENABLE_VECTOR_TO_FINAL || urlVtfPreview || vtfActive;
   const [vtfTranscript, setVtfTranscript] = useState('');
   const { state: vtfState, dispatch: vtfDispatch } = useSimEngine(vtfActive);
 
@@ -771,6 +780,7 @@ const App: React.FC = () => {
     setVtfTranscript('');
     setGameState(SimulationState.RUNNING);
     writeSeedToUrl(opts.seedLabel);
+    if (urlVtfPreview || ENABLE_VECTOR_TO_FINAL) writeVtfModeToUrl(true);
     setScenarioSeed(opts.seedLabel);
     vtfDispatch({
       type: 'START',
@@ -785,6 +795,7 @@ const App: React.FC = () => {
   const exitVtf = () => {
     setVtfActive(false);
     setShowVtfSetup(false);
+    if (!ENABLE_VECTOR_TO_FINAL) writeVtfModeToUrl(false);
     returnToMenu();
   };
 
@@ -875,7 +886,7 @@ const App: React.FC = () => {
       onContextMenu={(e) => e.preventDefault()}
     >
       
-      {gameState === SimulationState.MENU && !showAttract && !(ENABLE_VECTOR_TO_FINAL && showVtfSetup) && (
+      {gameState === SimulationState.MENU && !showAttract && !(vtfUnlocked && showVtfSetup) && (
         <MainMenu
           onStart={startGame}
           onTutorial={startTutorial}
@@ -885,14 +896,17 @@ const App: React.FC = () => {
           tutorialDone={tutorialDoneFlag}
         />
       )}
-      {ENABLE_VECTOR_TO_FINAL && showVtfSetup && (
+      {vtfUnlocked && showVtfSetup && (
         <VtfSetup
           defaultSeed={scenarioSeed || 'vtf-1'}
-          onCancel={() => setShowVtfSetup(false)}
+          onCancel={() => {
+            setShowVtfSetup(false);
+            if (!ENABLE_VECTOR_TO_FINAL) writeVtfModeToUrl(false);
+          }}
           onStart={startVtf}
         />
       )}
-      {ENABLE_VECTOR_TO_FINAL && vtfActive && vtfState.approach && (
+      {vtfUnlocked && vtfActive && vtfState.approach && (
         <div className="absolute inset-0 z-[55] flex flex-col landscape:flex-row bg-black" data-testid="vtf-game">
           <div className="flex-1 min-h-0 relative">
             <ApproachScope

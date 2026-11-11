@@ -1,8 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { ApproachProcedure, SimAircraft, WindState } from '../../sim/types';
 import { fafPoint, gatePoint, pointAlongFinal } from '../../sim/geometry';
 import { approachGateNmFromThreshold } from '../../sim/rules/intercept';
 import { MAP_SIZE } from '../../constants';
+import CompassRose from '../CompassRose';
+
+/** Drawn final length so controllers can see ~15–20 NM of centerline. */
+export const VTF_FINAL_DRAW_NM = 20;
+export const VTF_RANGE_MARKS_NM = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20] as const;
 
 interface Props {
   aircraft: SimAircraft[];
@@ -16,18 +21,43 @@ const ApproachScope: React.FC<Props> = ({ aircraft, approach, wind, onSelect, se
   const gateNm = approachGateNmFromThreshold(approach);
   const faf = fafPoint(approach);
   const gate = gatePoint(approach);
-  const outer = pointAlongFinal(approach, Math.max(gateNm + 8, 16));
+  const outerNm = Math.max(gateNm + 13, VTF_FINAL_DRAW_NM);
+  const outer = pointAlongFinal(approach, outerNm);
   const thr = approach.threshold;
 
-  const rangeMarks = [2, 4, 6, 8, 10, 12].map((nm) => pointAlongFinal(approach, nm));
+  const rangeMarks = VTF_RANGE_MARKS_NM.map((nm) => ({ nm, p: pointAlongFinal(approach, nm) }));
+
+  // Frame the camera on threshold → outer final (+ pad) so 20 NM is readable.
+  const view = useMemo(() => {
+    const pad = 90;
+    const xs = [thr.x, outer.x, faf.x, gate.x, ...aircraft.map((a) => a.x)];
+    const ys = [thr.y, outer.y, faf.y, gate.y, ...aircraft.map((a) => a.y)];
+    let minX = Math.min(...xs) - pad;
+    let maxX = Math.max(...xs) + pad;
+    let minY = Math.min(...ys) - pad;
+    let maxY = Math.max(...ys) + pad;
+    // Keep a square-ish framing so the compass rose stays readable.
+    const w0 = maxX - minX;
+    const h0 = maxY - minY;
+    const side = Math.max(w0, h0, MAP_SIZE * 0.45);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    minX = cx - side / 2;
+    maxX = cx + side / 2;
+    minY = cy - side / 2;
+    maxY = cy + side / 2;
+    return { minX, minY, side, viewBox: `${minX} ${minY} ${side} ${side}` };
+  }, [thr.x, thr.y, outer.x, outer.y, faf.x, faf.y, gate.x, gate.y, aircraft]);
 
   return (
     <svg
       data-testid="vtf-scope"
-      viewBox={`0 0 ${MAP_SIZE} ${MAP_SIZE}`}
+      viewBox={view.viewBox}
       className="w-full h-full bg-black"
     >
-      {/* Extended centerline */}
+      <CompassRose size={view.side} originX={view.minX} originY={view.minY} />
+
+      {/* Extended centerline (~20 NM) */}
       <line
         x1={thr.x}
         y1={thr.y}
@@ -36,6 +66,7 @@ const ApproachScope: React.FC<Props> = ({ aircraft, approach, wind, onSelect, se
         stroke={approach.kind === 'ILS' ? '#22c55e' : '#38bdf8'}
         strokeWidth={2}
         strokeDasharray={approach.kind === 'VOR' ? '8 6' : undefined}
+        data-testid="vtf-final-line"
       />
       {/* Runway stub */}
       <line
@@ -46,11 +77,11 @@ const ApproachScope: React.FC<Props> = ({ aircraft, approach, wind, onSelect, se
         stroke="#e5e5e5"
         strokeWidth={6}
       />
-      {rangeMarks.map((p, i) => (
-        <g key={i}>
+      {rangeMarks.map(({ nm, p }) => (
+        <g key={nm} data-testid={`vtf-range-${nm}`}>
           <circle cx={p.x} cy={p.y} r={3} fill="#4b5563" />
-          <text x={p.x + 6} y={p.y - 4} fill="#6b7280" fontSize={10}>
-            {i === 0 ? '' : `${[2, 4, 6, 8, 10, 12][i]}`}
+          <text x={p.x + 6} y={p.y - 4} fill="#9ca3af" fontSize={11} fontFamily="monospace">
+            {nm}
           </text>
         </g>
       ))}
@@ -64,11 +95,12 @@ const ApproachScope: React.FC<Props> = ({ aircraft, approach, wind, onSelect, se
       <text x={gate.x + 10} y={gate.y + 4} fill="#a78bfa" fontSize={11} fontFamily="monospace">
         GATE
       </text>
-      <text x={16} y={28} fill="#86efac" fontSize={12} fontFamily="monospace">
+      <text x={view.minX + 16} y={view.minY + 28} fill="#86efac" fontSize={12} fontFamily="monospace">
         {approach.kind} RWY {approach.runway} FAC {String(Math.round(approach.finalCourseDeg)).padStart(3, '0')}°
       </text>
-      <text x={16} y={46} fill="#93c5fd" fontSize={11} fontFamily="monospace">
+      <text x={view.minX + 16} y={view.minY + 46} fill="#93c5fd" fontSize={11} fontFamily="monospace">
         WIND {wind.calm ? 'CALM' : `${String(Math.round(wind.fromDeg)).padStart(3, '0')}@${Math.round(wind.speedKt)}`}
+        {' · '}FINAL {outerNm} NM
       </text>
 
       {aircraft.map((ac) => (

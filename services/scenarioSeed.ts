@@ -48,6 +48,30 @@ export function readSeedFromLocation(search = typeof window !== 'undefined' ? wi
   }
 }
 
+/** Preview unlock for Vector-to-Final while the live menu flag stays off. */
+export function readVtfModeFromLocation(
+  search = typeof window !== 'undefined' ? window.location.search : '',
+): boolean {
+  try {
+    const params = new URLSearchParams(search);
+    return (params.get('mode') || '').trim().toLowerCase() === 'vtf';
+  } catch {
+    return false;
+  }
+}
+
+export function writeVtfModeToUrl(enabled: boolean) {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return;
+  try {
+    const url = new URL(window.location.href);
+    if (enabled) url.searchParams.set('mode', 'vtf');
+    else url.searchParams.delete('mode');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function writeSeedToUrl(seedDisplay: string) {
   if (typeof window === 'undefined' || !window.history?.replaceState) return;
   try {
