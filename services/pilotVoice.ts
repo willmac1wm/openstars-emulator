@@ -1,5 +1,11 @@
 import { PilotVoice, speakCallsign, voiceForCallsign } from './phraseology';
 import { getVoiceSettings, VoiceSettings } from './voiceSettings';
+import {
+  applyTransformersVoiceEnv,
+  localVoiceModelCached,
+  registerVoiceServiceWorker,
+  requestPersistentStorage,
+} from './voiceAssets';
 // Deep package exports hide these files. Importing the installed paths lets Vite
 // emit them as same-origin assets instead of fetching the runtime from a CDN.
 import ortWasm from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
@@ -12,6 +18,9 @@ export const KOKORO_DTYPE = 'q8' as const;
 
 /** Approximate quantized model size used when progress_callback omits totals. */
 export const KOKORO_APPROX_BYTES = 92_361_116;
+
+/** Instructor narration voice (not latency-critical; warm Kokoro OK). */
+export const INSTRUCTOR_VOICE: PilotVoice = 'af_bella';
 
 /** Typical classroom readback used for the post-warmup latency benchmark. */
 export const BENCHMARK_PHRASE = 'Turn left heading two seven zero, American four twenty-one';
@@ -142,8 +151,8 @@ export function unlockAudio() {
 }
 
 /**
- * Begin Kokoro download/init during idle time on the menu.
- * Does not require a click (fetch/WASM init only). Audio unlock still waits for a gesture.
+ * Begin Kokoro download/init after first paint + idle time on the menu.
+ * Does not block first paint. Audio unlock still waits for a gesture.
  */
 export function preloadPilotVoice() {
   if (typeof window === 'undefined') return;
@@ -152,19 +161,31 @@ export function preloadPilotVoice() {
   if (preloadStarted || runtime.phase === 'ready' || runtime.phase === 'fallback') return;
   preloadStarted = true;
   const start = () => {
+    void requestPersistentStorage();
+    void registerVoiceServiceWorker();
     void ensureEngine();
   };
-  const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
-  if (typeof ric === 'function') {
-    ric(start, { timeout: 1500 });
+  // Two rAFs ≈ after first paint, then idle so the menu stays responsive.
+  const afterPaint = () => {
+    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    if (typeof ric === 'function') {
+      ric(start, { timeout: 2500 });
+    } else {
+      window.setTimeout(start, 400);
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(afterPaint));
   } else {
-    window.setTimeout(start, 0);
+    window.setTimeout(afterPaint, 0);
   }
 }
 
 /** Call from a click or keypress — unlocks audio and ensures the engine is loading. */
 export function primePilotVoice() {
   unlockAudio();
+  // Persist is more likely to succeed after a user gesture.
+  void requestPersistentStorage();
   if (!getVoiceSettings().enabled) return;
   preloadPilotVoice();
   void ensureEngine();
@@ -264,14 +285,15 @@ function ensureEngine(): Promise<void> {
   return enginePromise;
 }
 
-/** True when transformers.js already stashed Kokoro weights in the Cache API. */
+/** True when Kokoro weights are already in Cache Storage (same-origin or transformers-cache). */
 async function kokoroInBrowserCache(): Promise<boolean> {
+  if (await localVoiceModelCached()) return true;
   if (typeof caches === 'undefined') return false;
   try {
     for (const name of await caches.keys()) {
       const cache = await caches.open(name);
       for (const req of await cache.keys()) {
-        if (/Kokoro|model_quantized\.onnx|model\.onnx/i.test(req.url)) return true;
+        if (/Kokoro|model_quantized\.onnx|\/voice\//i.test(req.url)) return true;
       }
     }
   } catch {
@@ -446,8 +468,7 @@ async function loadKokoroInProcess(): Promise<SynthBackend> {
     import('@huggingface/transformers'),
   ]);
   const env = transformers.env;
-  env.allowLocalModels = false;
-  env.useBrowserCache = true;
+  applyTransformersVoiceEnv(env);
   try {
     const canThread = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
     const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 1;
@@ -884,6 +905,131 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/** True when Kokoro is loaded + warmed — good enough for non-latency-critical narration. */
+export function isInstructorNaturalReady(): boolean {
+  return Boolean(!forceBasic && kokoro && runtime.phase === 'ready' && runtime.warmed);
+}
+
+let instructorSource: AudioBufferSourceNode | null = null;
+let instructorToken = 0;
+
+export function stopInstructorAudio() {
+  instructorToken += 1;
+  try {
+    instructorSource?.stop();
+  } catch {
+    /* already stopped */
+  }
+  instructorSource = null;
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function instructorCacheKey(text: string, rate: number): string {
+  return `instructor|${INSTRUCTOR_VOICE}|${rate}|${text}`;
+}
+
+/** Pre-synthesize an instructor caption while the current line plays. */
+export function prewarmInstructorLine(text: string, rate = 1.05) {
+  if (!text || !isInstructorNaturalReady() || !kokoro) return;
+  const key = instructorCacheKey(text, rate);
+  if (phraseCache.has(key) || inflightChunks.has(key)) return;
+  const promise = withTimeout(
+    kokoro.generate(text, { voice: INSTRUCTOR_VOICE, speed: rate, priority: 'low' }),
+    SLOW_GENERATE_MS,
+  ).then((res) => {
+    inflightChunks.delete(key);
+    if (res.samples?.length) rememberPhrase(key, res.samples, res.sampleRate);
+    return res;
+  }).catch((err) => {
+    inflightChunks.delete(key);
+    throw err;
+  });
+  inflightChunks.set(key, promise);
+  void promise.catch(() => undefined);
+}
+
+/**
+ * Narrate instructor text: natural Kokoro when ready+warmed; else Web Speech.
+ * Not latency-critical — may wait briefly for synthesis. Callers can prewarm the next line.
+ */
+export function speakInstructorLine(
+  text: string,
+  opts?: { rate?: number; onend?: () => void; prewarmNext?: string },
+): void {
+  if (!text) {
+    opts?.onend?.();
+    return;
+  }
+  stopInstructorAudio();
+  const token = instructorToken;
+  const rate = opts?.rate ?? 1.05;
+  unlockAudio();
+
+  if (opts?.prewarmNext) {
+    prewarmInstructorLine(opts.prewarmNext, rate);
+  }
+
+  if (!isInstructorNaturalReady() || !kokoro) {
+    void ensureEngine();
+    void speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 }).then(() => {
+      if (token === instructorToken) opts?.onend?.();
+    });
+    return;
+  }
+
+  const key = instructorCacheKey(text, rate);
+  const play = async () => {
+    try {
+      let samples: Float32Array;
+      let sampleRate: number;
+      const cached = phraseCache.get(key);
+      if (cached) {
+        samples = cached.samples;
+        sampleRate = cached.sampleRate;
+      } else {
+        const audio = await withTimeout(
+          kokoro!.generate(text, { voice: INSTRUCTOR_VOICE, speed: rate, priority: 'high' }),
+          SLOW_GENERATE_MS,
+        );
+        samples = audio.samples;
+        sampleRate = audio.sampleRate;
+        if (samples?.length) rememberPhrase(key, samples, sampleRate);
+      }
+      if (token !== instructorToken) return;
+      unlockAudio();
+      if (!audioCtx || !samples?.length) {
+        opts?.onend?.();
+        return;
+      }
+      const buffer = audioCtx.createBuffer(1, samples.length, sampleRate);
+      buffer.getChannelData(0).set(samples as unknown as Float32Array<ArrayBuffer>);
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      const gain = audioCtx.createGain();
+      gain.gain.value = 1;
+      source.connect(gain);
+      gain.connect(audioCtx.destination);
+      instructorSource = source;
+      source.onended = () => {
+        if (instructorSource === source) instructorSource = null;
+        if (token === instructorToken) opts?.onend?.();
+      };
+      source.start();
+    } catch {
+      if (token !== instructorToken) return;
+      await speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 });
+      if (token === instructorToken) opts?.onend?.();
+    }
+  };
+  void play();
+}
+
 /** Expose bench hooks for Playwright / console diagnostics (no PII). */
 export function installVoiceDebugHooks() {
   if (typeof window === 'undefined') return;
@@ -893,6 +1039,9 @@ export function installVoiceDebugHooks() {
     speakPilot,
     prewarmReadback,
     prewarmCallsigns,
+    isInstructorNaturalReady,
+    speakInstructorLine,
+    prewarmInstructorLine,
     FIRST_AUDIO_BUDGET_MS,
   };
 }
@@ -921,4 +1070,5 @@ export function __resetPilotVoiceForTests() {
   phraseCache.clear();
   inflightChunks.clear();
   prewarmedCallsigns.clear();
+  stopInstructorAudio();
 }

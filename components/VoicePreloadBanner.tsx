@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   getVoiceRuntime,
+  KOKORO_APPROX_BYTES,
   subscribeVoiceRuntime,
   useBasicVoiceNow,
   voiceStatusLabel,
@@ -45,8 +46,14 @@ const VoicePreloadBanner: React.FC<Props> = ({ showBasicOption = true, className
     >
       <div className={`font-mono ${compact ? 'text-[11px]' : 'text-xs md:text-sm'}`}>
         {voiceStatusLabel(runtime)}
+        {loading && (
+          <span className="text-gray-500 ml-2" data-testid="voice-preload-mb">
+            ~{Math.max(1, Math.round((runtime.progress * KOKORO_APPROX_BYTES) / 1_000_000))}/
+            {Math.round(KOKORO_APPROX_BYTES / 1_000_000)} MB
+          </span>
+        )}
         {ready && runtime.loadMs > 0 && (
-          <span className="text-gray-500 ml-2">({(runtime.loadMs / 1000).toFixed(1)}s)</span>
+          <span className="text-gray-500 ml-2">({(runtime.loadMs / 1000).toFixed(1)}s{runtime.fromCache ? ' · cache' : ''})</span>
         )}
         {ready && runtime.lastGenerateMs > 0 && settings.naturalVoices && (
           <span className="text-gray-500 ml-2">· synth {runtime.lastGenerateMs}ms</span>
@@ -63,8 +70,9 @@ const VoicePreloadBanner: React.FC<Props> = ({ showBasicOption = true, className
       )}
       {!compact && (
         <div className="text-[10px] md:text-xs text-gray-500 leading-snug">
-          Readbacks use <strong className="text-gray-400 font-semibold">Fast voice</strong> by default so they start within a fraction of a second.
-          Open once per computer if you want optional natural voices cached.
+          Readbacks use <strong className="text-gray-400 font-semibold">Fast voice</strong> by default.
+          Natural voices (~92 MB) load in the background from this site and stay cached for next visit.
+          The guided tutorial switches to natural voice automatically once ready.
         </div>
       )}
       {showBasicOption && loading && (

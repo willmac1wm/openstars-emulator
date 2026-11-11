@@ -4,6 +4,7 @@ import { TUTORIAL_STEPS } from '../../services/tutorial/steps';
 
 interface Props {
   state: TutorialState;
+  voiceEngine?: 'kokoro' | 'webspeech';
   onNext: () => void;
   onReplay: () => void;
   onSkip: () => void;
@@ -13,7 +14,7 @@ interface Props {
   onMenu: () => void;
 }
 
-const TutorialOverlay: React.FC<Props> = ({ state, onNext, onReplay, onSkip, onPlayExpo, onMenu }) => {
+const TutorialOverlay: React.FC<Props> = ({ state, voiceEngine = 'webspeech', onNext, onReplay, onSkip, onPlayExpo, onMenu }) => {
   const step = currentStep(state);
   const progress = Math.min(100, Math.round(((state.index + (state.completed ? 1 : 0)) / TUTORIAL_STEPS.length) * 100));
   const expectHint =
@@ -70,7 +71,15 @@ const TutorialOverlay: React.FC<Props> = ({ state, onNext, onReplay, onSkip, onP
       <div className="mx-auto max-w-3xl rounded-xl border border-cyan-700/60 bg-black/92 backdrop-blur-sm p-3 md:p-4 text-cyan-50 shadow-lg space-y-3">
         <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-cyan-400/80 font-mono">
           <span>Instructor</span>
-          <span data-testid="tutorial-progress">{progress}%</span>
+          <span className="flex items-center gap-2">
+            <span
+              data-testid="tutorial-voice-engine"
+              className={voiceEngine === 'kokoro' ? 'text-violet-300' : 'text-gray-500'}
+            >
+              {voiceEngine === 'kokoro' ? 'Natural voice' : 'Basic voice'}
+            </span>
+            <span data-testid="tutorial-progress">{progress}%</span>
+          </span>
         </div>
         <div
           data-testid="tutorial-caption"

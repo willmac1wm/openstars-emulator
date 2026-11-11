@@ -4,7 +4,25 @@ import tailwindcss from '@tailwindcss/vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: 'voice-cache-headers',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url && (req.url.startsWith('/voice/') || req.url === '/voice-sw.js')) {
+            if (req.url.startsWith('/voice/')) {
+              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            } else {
+              res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+            }
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     host: '0.0.0.0',
     port: 8080,
@@ -30,5 +48,5 @@ export default defineConfig({
   build: {
     sourcemap: false,
     minify: 'esbuild',
-  }
+  },
 });
