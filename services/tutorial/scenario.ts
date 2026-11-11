@@ -9,8 +9,11 @@ export const TUTORIAL_TARGET_CALLSIGN = 'AAL421';
 export const TUTORIAL_BUDDY_CALLSIGN = 'UAL123';
 export const TUTORIAL_FAR_CALLSIGN = 'DAL456';
 
-/** Edge ring — same corridor family as Expo/classroom spawns. */
-const EDGE_DIST = GATE_RADIUS + 70; // ~42 NM from center
+/**
+ * Outer ring (≥ gate+20 for isEdgeSpawn) but ≤ ~400px from center so targets
+ * stay inside the 800×800 SVG viewBox and remain clickable.
+ */
+const EDGE_DIST = GATE_RADIUS + 20; // 37 NM from center
 
 function plane(partial: Partial<Aircraft> & Pick<Aircraft, 'id' | 'callsign' | 'destination'>): Aircraft {
   return {

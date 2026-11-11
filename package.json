@@ -11,6 +11,7 @@
     "build:desktop": "cross-env VITE_OPENSTARS_DESKTOP=1 npm run build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:tutorial-e2e": "node scripts/tutorial-e2e.mjs",
     "start": "vite --port 8080 --host",
     "cap": "capacitor",
     "tauri": "tauri",

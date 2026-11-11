@@ -23,19 +23,23 @@ export interface TutorialStep {
   id: string;
   /** Instructor narration (also shown as caption / transcript). */
   narration: string;
-  /** Your-turn prompt shown under the caption when waiting for the student. */
+  /**
+   * One explicit instruction for the trainee on your-turn steps
+   * (e.g. "Click the plane labeled AAL421.").
+   */
   actionPrompt?: string;
   highlight?: TutorialHighlight;
   demo?: TutorialDemo[];
   expect?: TutorialExpect;
   /** Auto-advance after narration when there is no student action (ms). */
   dwellMs?: number;
+  /** When true, unfreeze sim motion for this step (default: frozen). */
+  allowMotion?: boolean;
 }
 
 /**
- * ~2–3 minute kid-friendly script with correct JO 7110.65-style phraseology.
- * Demo steps run the virtual cursor; action steps wait for the student.
- * Clearances use the compass dial + sticky ISSUE CLEARANCE (Expo tap pad).
+ * ~2–3 minute kid-friendly script. Demo steps drive the virtual cursor;
+ * your-turn steps wait for one explicit action.
  */
 export const TUTORIAL_STEPS: TutorialStep[] = [
   {
@@ -76,17 +80,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'select-you',
-    narration: 'Your turn! Tap American four twenty-one on the scope so it is selected.',
-    actionPrompt: 'Tap AAL421 on the scope',
+    narration: 'Your turn.',
+    actionPrompt: 'Click the plane labeled AAL421.',
     highlight: { kind: 'aircraft', callsign: TUTORIAL_TARGET_CALLSIGN },
     expect: { kind: 'select', callsign: TUTORIAL_TARGET_CALLSIGN },
   },
   {
     id: 'dial-intro',
     narration:
-      'On the right is the tap clearance pad. Drag the compass dial to pick a heading — it snaps every five degrees. The sim picks the shortest turn unless you force LEFT or RIGHT. You can also type a command in the line above, like American four twenty-one turn left heading two seven zero. Dial and chips only stage a clearance — tap ISSUE CLEARANCE or press Enter to send it once. ISSUE stays at the bottom so you never scroll to find it.',
+      'On the right is the tap clearance pad. Drag the compass dial to pick a heading — it snaps every five degrees. Dial and chips only stage a clearance — tap ISSUE CLEARANCE or press Enter to send it once.',
     highlight: { kind: 'control', id: 'heading-dial' },
-    dwellMs: 8500,
+    dwellMs: 7500,
   },
   {
     id: 'heading-demo',
@@ -102,20 +106,19 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'heading-you',
-    narration:
-      'Your turn. Dial heading two seven zero on the compass, then tap ISSUE CLEARANCE — or press Enter. Shortest turn is fine.',
-    actionPrompt: 'Dial H270, then ISSUE CLEARANCE',
+    narration: 'Your turn. Two steps — dial first, then Issue.',
+    actionPrompt: 'Turn the dial to 270, then press ISSUE CLEARANCE.',
     highlight: { kind: 'control', id: 'heading-dial' },
     expect: {
       kind: 'command',
       match: /AAL421.*(H\s*270|TH\s*270|TL\s*270|TR\s*270|HEADING\s*270)/i,
-      hint: 'Drag the dial to H270, then tap ISSUE CLEARANCE (or press Enter)',
+      hint: 'Drag the dial until it shows H270, then press ISSUE CLEARANCE.',
     },
   },
   {
     id: 'altitude-demo',
     narration:
-      'Altitude chips are next to the dial. A060 means six thousand feet. Watch me: American four twenty-one, descend and maintain six thousand — then Issue.',
+      'Altitude chips show every gate altitude: A060, A070, A080, and A090. Watch me: American four twenty-one, descend and maintain six thousand — then Issue.',
     highlight: { kind: 'control', id: 'alt-60' },
     demo: [
       { kind: 'point', target: { kind: 'control', id: 'alt-60' }, ms: 600 },
@@ -126,14 +129,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'altitude-you',
-    narration:
-      'Your turn. South exits use A060 or A080. Tap A080 for eight thousand, then ISSUE CLEARANCE.',
-    actionPrompt: 'Tap A080, then ISSUE CLEARANCE',
+    narration: 'Your turn.',
+    actionPrompt: 'Tap 8000 (A080) in the Altitude box, then press ISSUE CLEARANCE.',
     highlight: { kind: 'control', id: 'alt-80' },
     expect: {
       kind: 'command',
       match: /AAL421.*(A\s*080|ALT\s*080)/i,
-      hint: 'Tap A080 on the pad, then ISSUE CLEARANCE',
+      hint: 'Tap A080 in the Altitude box, then press ISSUE CLEARANCE.',
     },
   },
   {
@@ -149,21 +151,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'speed-you',
-    narration: 'Your turn. Tap S210, then ISSUE CLEARANCE.',
-    actionPrompt: 'Tap S210, then ISSUE CLEARANCE',
+    narration: 'Your turn.',
+    actionPrompt: 'Tap S210 in the Speed box, then press ISSUE CLEARANCE.',
     highlight: { kind: 'control', id: 'spd-210' },
     expect: {
       kind: 'command',
       match: /AAL421.*S\s*210/i,
-      hint: 'Tap S210, then ISSUE CLEARANCE',
+      hint: 'Tap S210, then press ISSUE CLEARANCE.',
     },
   },
   {
     id: 'ptt',
     narration:
-      'You can also hold HOLD TO TALK or the Spacebar and speak a clearance. Typing is always available — many controllers prefer the command line. Dial, chips, and PTT all work together; if the mic is busy, type or tap Issue.',
+      'You can also hold HOLD TO TALK or the Spacebar and speak a clearance. Typing and the on-screen keyboard always work too.',
     highlight: { kind: 'control', id: 'ptt-button' },
-    dwellMs: 6000,
+    dwellMs: 5500,
   },
   {
     id: 'gate',
@@ -175,7 +177,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'separation',
     narration:
-      'Keep planes at least three miles apart horizontally, or one thousand feet vertically. If they get too close, data blocks flash red and you hear a repeating STARS conflict alert beep until they are safe again. Safety first!',
+      'Keep planes at least three miles apart horizontally, or one thousand feet vertically. If they get too close, data blocks flash red and you hear a repeating STARS conflict alert beep until they are safe again.',
     highlight: { kind: 'region', id: 'conflict' },
     dwellMs: 6500,
   },

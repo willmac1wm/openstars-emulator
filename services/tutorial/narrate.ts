@@ -1,6 +1,6 @@
 /**
  * Instructor narration — natural Kokoro when loaded+warmed; Web Speech until then.
- * Captions are not latency-critical; we pre-synthesize the next line while the current plays.
+ * Captions always show in the overlay; audio must never block step advance.
  */
 import {
   isInstructorNaturalReady,
@@ -14,6 +14,9 @@ export type InstructorEngine = 'kokoro' | 'webspeech';
 
 let lastEngine: InstructorEngine = 'webspeech';
 const engineListeners = new Set<(engine: InstructorEngine) => void>();
+
+/** Track narrations requested (for E2E assertions). */
+const narrationLog: string[] = [];
 
 function setEngine(engine: InstructorEngine) {
   if (engine === lastEngine) return;
@@ -30,7 +33,15 @@ export function subscribeInstructorEngine(listener: (engine: InstructorEngine) =
   return () => engineListeners.delete(listener);
 }
 
-/** Prefer natural voice once ready; fall back to Web Speech. */
+export function getNarrationLog(): readonly string[] {
+  return narrationLog;
+}
+
+export function clearNarrationLog(): void {
+  narrationLog.length = 0;
+}
+
+/** Prefer natural voice once ready; fall back to Web Speech within ~2s on stall. */
 export function speakInstructor(
   text: string,
   opts?: { rate?: number; onend?: () => void; prewarmNext?: string },
@@ -39,12 +50,18 @@ export function speakInstructor(
     opts?.onend?.();
     return;
   }
+  narrationLog.push(text);
+  if (typeof window !== 'undefined') {
+    (window as Window & { __tutorialNarrations?: string[] }).__tutorialNarrations = [...narrationLog];
+  }
   const natural = isInstructorNaturalReady();
   setEngine(natural ? 'kokoro' : 'webspeech');
   speakInstructorLine(text, {
     rate: opts?.rate ?? 1.05,
     onend: opts?.onend,
     prewarmNext: opts?.prewarmNext,
+    /** Stall budget before falling back to Web Speech for this line. */
+    kokoroBudgetMs: 2_000,
   });
 }
 

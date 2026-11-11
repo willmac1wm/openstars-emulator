@@ -7,6 +7,7 @@ import {
   reduceTutorial,
 } from '../../services/tutorial/machine';
 import {
+  clearNarrationLog,
   getInstructorEngine,
   onNaturalVoiceReady,
   prewarmInstructor,
@@ -18,6 +19,7 @@ import { TUTORIAL_STEPS, TutorialDemo, TutorialHighlight } from '../../services/
 import { playSuccessChime } from '../../services/soundEffects';
 import TutorialOverlay from './TutorialOverlay';
 import VirtualCursor from './VirtualCursor';
+import HighlightRing from './HighlightRing';
 
 export interface TutorialBridge {
   selectAircraft: (callsign: string) => void;
@@ -53,6 +55,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
   const [state, setState] = useState<TutorialState>(initialTutorialState);
   const [cursorTarget, setCursorTarget] = useState<string | undefined>();
   const [clicking, setClicking] = useState(false);
+  const [justSucceeded, setJustSucceeded] = useState(false);
   const [voiceEngine, setVoiceEngine] = useState(getInstructorEngine);
   const demoCancel = useRef(false);
   const idleTimer = useRef<number | null>(null);
@@ -145,6 +148,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
       setCursorTarget(undefined);
       return;
     }
+    clearNarrationLog();
     const started = reduceTutorial(initialTutorialState(), { type: 'START' });
     setState(started);
     stepKeyRef.current = '';
@@ -198,7 +202,11 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     actionRef.current.onSelect = (callsign: string) => {
       setState((s) => {
         const next = reduceTutorial(s, { type: 'SELECT', callsign });
-        if (next.index !== s.index) stepKeyRef.current = '';
+        if (next.index !== s.index) {
+          stepKeyRef.current = '';
+          setJustSucceeded(true);
+          window.setTimeout(() => setJustSucceeded(false), 700);
+        }
         armIdle(next.phase);
         return next;
       });
@@ -206,7 +214,11 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     actionRef.current.onCommand = (raw: string) => {
       setState((s) => {
         const next = reduceTutorial(s, { type: 'COMMAND', raw });
-        if (next.index !== s.index) stepKeyRef.current = '';
+        if (next.index !== s.index) {
+          stepKeyRef.current = '';
+          setJustSucceeded(true);
+          window.setTimeout(() => setJustSucceeded(false), 700);
+        }
         armIdle(next.phase);
         return next;
       });
@@ -222,26 +234,25 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
   const step = currentStep(state);
   const regionId = step?.highlight?.kind === 'region' ? step.highlight.id : null;
 
+  const highlightTestId = highlightToTestId(step?.highlight, bridge);
+  const waiting = state.phase === 'waiting' || state.phase === 'hint';
+
   return (
     <>
-      <div
-        data-testid="tutorial-dim"
-        className="absolute inset-0 z-[65] pointer-events-none"
-        style={{
-          background:
-            regionId === 'scope' || regionId === 'compass' || regionId === 'gate'
-              ? 'radial-gradient(circle at 38% 42%, transparent 26%, rgba(0,0,0,0.55) 60%)'
-              : 'rgba(0,0,0,0.32)',
-        }}
-      />
+      {/* Region anchors for region highlights (live rects via HighlightRing / cursor). */}
       <div data-testid="tutorial-region-scope" className="absolute inset-0 pointer-events-none" />
-      <div data-testid="tutorial-region-compass" className="absolute top-0 left-0 right-0 h-10 pointer-events-none" />
+      <div data-testid="tutorial-region-compass" className="absolute top-0 left-0 right-[22%] h-12 pointer-events-none" />
       <div data-testid="tutorial-region-datablock" className="absolute top-[32%] left-[52%] w-2 h-2 pointer-events-none" />
-      <div data-testid="tutorial-region-gate" className="absolute bottom-[28%] left-1/2 w-2 h-2 pointer-events-none" />
+      <div data-testid="tutorial-region-gate" className="absolute bottom-[18%] left-[42%] w-24 h-16 pointer-events-none" />
       <div data-testid="tutorial-region-ptt" className="absolute bottom-28 right-6 w-2 h-2 pointer-events-none" />
       <div data-testid="tutorial-region-dial" className="absolute bottom-40 right-10 w-2 h-2 pointer-events-none" />
       <div data-testid="tutorial-region-conflict" className="absolute inset-0 pointer-events-none" />
       <div data-testid="tutorial-region-sfx" className="absolute top-3 right-3 w-2 h-2 pointer-events-none" />
+
+      <HighlightRing
+        active={!state.completed && Boolean(highlightTestId) && (waiting || Boolean(regionId) || state.phase === 'demo' || state.phase === 'narrating')}
+        targetTestId={highlightTestId}
+      />
 
       <VirtualCursor
         visible={Boolean(cursorTarget) && !state.completed}
@@ -251,6 +262,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
       <TutorialOverlay
         state={state}
         voiceEngine={voiceEngine}
+        justSucceeded={justSucceeded}
         onNext={() => {
           stopInstructorSpeech();
           demoCancel.current = true;

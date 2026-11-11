@@ -54,9 +54,11 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
   // Stable gate — do not recreate on parent render (would drop the debounce lock).
   const gateRef = useRef(createTapIssueGate((cmd) => onIssueRef.current(cmd)));
 
-  const legalAlts = aircraft
-    ? (aircraft.destination === 'NOR' || aircraft.destination === 'EAS' ? ALTS_NORTH_EAST : ALTS_SOUTH_WEST)
-    : ALTS_SOUTH_WEST;
+  // Always show every gate altitude (N/E odd + S/W even) so trainees can pick any legal exit alt.
+  const legalAlts = useMemo(
+    () => [...new Set([...ALTS_SOUTH_WEST, ...ALTS_NORTH_EAST])].sort((a, b) => a - b),
+    [],
+  );
 
   // Reset pad when the selected aircraft changes — never carry a stale heading.
   useEffect(() => {
