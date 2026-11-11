@@ -175,9 +175,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'separation',
     narration:
-      'Keep planes at least three miles apart horizontally, or one thousand feet vertically. If they get too close, the scope turns red and you hear a warning tone. Safety first!',
+      'Keep planes at least three miles apart horizontally, or one thousand feet vertically. If they get too close, data blocks flash red and you hear a repeating STARS conflict alert beep until they are safe again. Safety first!',
     highlight: { kind: 'region', id: 'conflict' },
-    dwellMs: 6000,
+    dwellMs: 6500,
   },
   {
     id: 'done',
