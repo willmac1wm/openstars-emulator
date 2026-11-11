@@ -39,7 +39,9 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_target: aarch64-apple-darwin
-          - platform: macos-13
+          # Cross-compile Intel from Apple Silicon runners — macos-13 is retired
+          # and was leaving x86_64 jobs queued indefinitely.
+          - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust_target: x86_64-apple-darwin
           - platform: windows-latest
