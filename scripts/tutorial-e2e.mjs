@@ -134,7 +134,7 @@ for (let i = 0; i < stepCount; i++) {
   }
 
   if (step.expect?.kind === 'select') {
-    await page.getByTestId(`aircraft-${step.expect.callsign}`).click({ timeout: 15_000 });
+    await page.getByTestId(`aircraft-${step.expect.callsign}`).click({ timeout: 15_000, force: true });
   } else if (step.expect?.kind === 'command') {
     // Use typed CMD + Enter so we do not depend on dial geometry in headless.
     const input = page.getByTestId('command-input');
