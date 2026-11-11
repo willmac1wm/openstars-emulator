@@ -1,10 +1,12 @@
 import React from 'react';
+import { Check } from 'lucide-react';
 import { TutorialState, currentStep } from '../../services/tutorial/machine';
 import { TUTORIAL_STEPS } from '../../services/tutorial/steps';
 
 interface Props {
   state: TutorialState;
   voiceEngine?: 'kokoro' | 'webspeech';
+  justSucceeded?: boolean;
   onNext: () => void;
   onReplay: () => void;
   onSkip: () => void;
@@ -14,14 +16,23 @@ interface Props {
   onMenu: () => void;
 }
 
-const TutorialOverlay: React.FC<Props> = ({ state, voiceEngine = 'webspeech', onNext, onReplay, onSkip, onPlayExpo, onMenu }) => {
+const TutorialOverlay: React.FC<Props> = ({
+  state,
+  voiceEngine = 'webspeech',
+  justSucceeded = false,
+  onNext,
+  onReplay,
+  onSkip,
+  onPlayExpo,
+  onMenu,
+}) => {
   const step = currentStep(state);
   const progress = Math.min(100, Math.round(((state.index + (state.completed ? 1 : 0)) / TUTORIAL_STEPS.length) * 100));
   const expectHint =
     step?.expect && step.expect.kind === 'command'
       ? step.expect.hint
       : step?.expect && step.expect.kind === 'select'
-        ? `Tap ${step.expect.callsign} on the scope`
+        ? `Click the plane labeled ${step.expect.callsign}.`
         : null;
 
   if (state.completed) {
@@ -63,6 +74,8 @@ const TutorialOverlay: React.FC<Props> = ({ state, voiceEngine = 'webspeech', on
 
   if (!step) return null;
 
+  const waiting = state.phase === 'waiting' || state.phase === 'hint';
+
   return (
     <div
       data-testid="tutorial-overlay"
@@ -83,14 +96,23 @@ const TutorialOverlay: React.FC<Props> = ({ state, voiceEngine = 'webspeech', on
         </div>
         <div
           data-testid="tutorial-caption"
-          className="font-mono text-sm md:text-base leading-relaxed text-white min-h-[3.5rem]"
+          className="font-mono text-sm md:text-base leading-relaxed text-white min-h-[2.5rem]"
           aria-live="polite"
         >
           {step.narration}
         </div>
-        {step.actionPrompt && (state.phase === 'waiting' || state.phase === 'hint') && (
-          <div data-testid="tutorial-action-prompt" className="text-amber-200 text-xs md:text-sm font-bold">
-            Your turn: {step.actionPrompt}
+        {step.actionPrompt && waiting && (
+          <div
+            data-testid="tutorial-action-prompt"
+            className="flex items-start gap-2 text-amber-100 text-sm md:text-base font-bold bg-amber-950/50 border border-amber-600/60 rounded px-3 py-2"
+          >
+            {justSucceeded ? (
+              <span data-testid="tutorial-success-check" className="inline-flex items-center gap-1 text-green-300">
+                <Check size={18} /> Done
+              </span>
+            ) : (
+              <span>Your turn: {step.actionPrompt}</span>
+            )}
           </div>
         )}
         {state.hintVisible && expectHint && (

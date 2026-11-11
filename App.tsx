@@ -99,6 +99,8 @@ const App: React.FC = () => {
   const [scenarioSeed, setScenarioSeed] = useState<string | null>(() => readSeedFromLocation());
   const [showAttract, setShowAttract] = useState(false);
   const tutorialActionsRef = useRef<TutorialActionSink>({});
+  const tutorialActiveRef = useRef(false);
+  tutorialActiveRef.current = tutorialActive;
   const [arcadeEndsAt, setArcadeEndsAt] = useState<number | null>(null);
   const [arcadeRemainingMs, setArcadeRemainingMs] = useState(ARCADE_DURATION_MS);
   const [arcadeBanner, setArcadeBanner] = useState<string | null>(null);
@@ -275,6 +277,8 @@ const App: React.FC = () => {
   };
 
   const endGame = useCallback(() => {
+    // Never terminate How to Play into a FAILED / summary screen.
+    if (tutorialActiveRef.current) return;
     clearArcadeTimers();
     if (arcadeActiveRef.current) {
       arcadeActiveRef.current = false;
@@ -310,7 +314,8 @@ const App: React.FC = () => {
     setConflictAlertActive(false);
     setArcadeEndsAt(null);
     setArcadeRemainingMs(ARCADE_DURATION_MS);
-    setTimeScale(2);
+    // Freeze traffic until/unless a step needs motion — never race the trainee.
+    setTimeScale(0);
     identifyUser('guest-tutorial');
     const scenario = buildTutorialScenario();
     const preferred = scenario.aircraft.find((ac) => ac.isSelected) || scenario.aircraft[0];
@@ -522,6 +527,8 @@ const App: React.FC = () => {
   const updatePhysics = useCallback((deltaSeconds: number) => {
     setAircraft(prev => {
       let activeCount = 0;
+      // Tutorial freezes motion (and scoring side-effects) so planes never race off-scope.
+      const simScale = tutorialActiveRef.current ? 0 : timeScale;
       
       const updated = prev.map(ac => {
         if (ac.status === 'HANDOFF') {
@@ -533,6 +540,10 @@ const App: React.FC = () => {
             activeCount++;
         }
 
+        if (tutorialActiveRef.current) {
+          return { ...ac, alertLevel: AlertLevel.NONE };
+        }
+
         let newHeading = ac.heading;
         let newAlt = ac.altitude;
         let newSpeed = ac.speed;
@@ -542,7 +553,7 @@ const App: React.FC = () => {
            while (diff <= -180) diff += 360;
            while (diff > 180) diff -= 360;
            const turnRatePerSec = 3.0; 
-           const turnAmount = turnRatePerSec * deltaSeconds * timeScale;
+           const turnAmount = turnRatePerSec * deltaSeconds * simScale;
            let turnDir = 0; 
            if (ac.turnDirection === 'LEFT') turnDir = -1;
            else if (ac.turnDirection === 'RIGHT') turnDir = 1;
@@ -557,24 +568,24 @@ const App: React.FC = () => {
         }
 
         if (ac.altitude !== ac.targetAltitude) {
-            const climbRatePerSec = 0.25 * timeScale; 
+            const climbRatePerSec = 0.25 * simScale; 
             if (Math.abs(ac.targetAltitude - ac.altitude) < climbRatePerSec * deltaSeconds) newAlt = ac.targetAltitude;
             else newAlt += (ac.targetAltitude > ac.altitude ? 1 : -1) * climbRatePerSec * deltaSeconds;
         }
 
         if (ac.speed !== ac.targetSpeed) {
-            const accRatePerSec = 2.5 * timeScale; 
+            const accRatePerSec = 2.5 * simScale; 
             if (Math.abs(ac.targetSpeed - ac.speed) < accRatePerSec * deltaSeconds) newSpeed = ac.targetSpeed;
             else newSpeed += (ac.targetSpeed > ac.speed ? 1 : -1) * accRatePerSec * deltaSeconds;
         }
 
         const pxPerSec = (newSpeed * NM_TO_PX) / 3600; 
-        const moveDist = pxPerSec * deltaSeconds * timeScale;
+        const moveDist = pxPerSec * deltaSeconds * simScale;
         const newX = ac.x + Math.cos(toRad(newHeading)) * moveDist;
         const newY = ac.y + Math.sin(toRad(newHeading)) * moveDist;
 
         let newHistory = ac.history;
-        if (Math.random() < (0.25 * deltaSeconds * timeScale)) { 
+        if (Math.random() < (0.25 * deltaSeconds * simScale)) { 
              newHistory = [{x: ac.x, y: ac.y}, ...ac.history].slice(0, 6);
         }
 
@@ -654,11 +665,11 @@ const App: React.FC = () => {
         return { ...ac, x: newX, y: newY, heading: newHeading, altitude: newAlt, speed: newSpeed, history: newHistory, status, turnDirection: ac.turnDirection, alertLevel: AlertLevel.NONE, handoffResult };
       });
       
-      if (prev.length > 0 && activeCount === 0) {
+      if (prev.length > 0 && activeCount === 0 && !tutorialActiveRef.current) {
           setTimeout(endGame, 4000);
       }
 
-      return checkSeparation(updated);
+      return tutorialActiveRef.current ? updated : checkSeparation(updated);
     });
   }, [addLog, timeScale, endGame, playMode]);
 

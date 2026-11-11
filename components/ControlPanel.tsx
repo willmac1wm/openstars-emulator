@@ -87,11 +87,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Detect mobile on mount; expo booths keep soft chips even on wide screens (non-arcade).
+  // Touch / narrow screens and Expo Mode default the on-screen keyboard open (collapsible).
   useEffect(() => {
-    const isMobile = window.innerWidth < 1024;
-    setShowSoftKeyboard(isMobile || (expoMode && !arcadeHud));
-  }, [expoMode, arcadeHud]);
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const narrow = window.innerWidth < 1024;
+    setShowSoftKeyboard(coarse || narrow || expoMode);
+  }, [expoMode]);
 
   // Auto-focus + callsign fill when selecting an aircraft
   useEffect(() => {
@@ -240,8 +241,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     }
   };
 
-  const handleSoftKey = (key: string) => setInputValue(prev => prev + key);
-  const handleSoftDelete = () => setInputValue(prev => prev.slice(0, -1));
+  const handleSoftKey = (key: string) => setInputValue((prev) => prev + key);
+  const handleSoftDelete = () => setInputValue((prev) => prev.slice(0, -1));
+  const handleSoftClear = () => {
+    setInputValue('');
+    setSpeechConfidence(null);
+    setSpeechPending(false);
+  };
 
   const isRunning = gameState === SimulationState.RUNNING;
   const isPaused = gameState === SimulationState.PAUSED;
@@ -369,15 +375,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <span className="opacity-80">{speechPending ? 'ENTER' : 'AUTO'}</span>
             </div>
           )}
-          {!arcadeActive && (
-            <button
-              type="button"
-              onClick={() => setShowSoftKeyboard(!showSoftKeyboard)}
-              className={`px-2 rounded border ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
-            >
-              <KeyboardIcon size={18} />
-            </button>
-          )}
+          <button
+            type="button"
+            data-testid="soft-keyboard-toggle"
+            aria-pressed={showSoftKeyboard}
+            title={showSoftKeyboard ? 'Hide on-screen keyboard' : 'Show on-screen keyboard'}
+            onClick={() => setShowSoftKeyboard(!showSoftKeyboard)}
+            className={`px-2 rounded border ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+          >
+            <KeyboardIcon size={18} />
+          </button>
           <button
             type="submit"
             data-testid="command-send"
@@ -429,6 +436,24 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         )}
       </form>
 
+      {/* On-screen keyboard — compact when Expo tap pad is also open so 1024×640 still fits. */}
+      {showSoftKeyboard && (
+        <div
+          className={`shrink-0 border-b border-gray-800 bg-black ${
+            arcadeActive ? 'max-h-[38%] overflow-y-auto' : ''
+          }`}
+          data-testid="soft-keyboard-slot"
+        >
+          <SoftKeyboard
+            compact={arcadeActive}
+            onKeyPress={handleSoftKey}
+            onDelete={handleSoftDelete}
+            onClear={handleSoftClear}
+            onSubmit={() => handleSubmit()}
+          />
+        </div>
+      )}
+
       {/* Arcade tap pad: flex so ISSUE CLEARANCE stays visible without panel scroll */}
       {arcadeActive && (
         <div
@@ -442,11 +467,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* 4. BOTTOM SPLIT SECTION — shrink comm log when arcade HUD owns the height */}
       <div
         className={`${
-          arcadeActive ? 'shrink-0 max-h-16 lg:max-h-20' : 'flex-1'
+          arcadeActive ? 'shrink-0 max-h-14 lg:max-h-16' : 'flex-1'
         } min-h-0 flex flex-row lg:flex-col overflow-hidden`}
       >
-
-        <div className={`flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 ${showSoftKeyboard && !arcadeHud ? 'w-1/2 lg:w-full' : 'w-full'}`}>
+        <div className="flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 w-full">
           <div className="absolute top-0 left-0 right-0 bg-gray-800 text-[9px] px-1 text-gray-500 z-10 flex justify-between">
             <span>COMM 1</span><span>124.500</span>
           </div>
@@ -477,17 +501,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <div ref={logsEndRef} />
           </div>
         </div>
-
-        {showSoftKeyboard && !arcadeHud && (
-          <div className="w-1/2 lg:w-full lg:flex-none h-full lg:h-auto border-t border-gray-800 bg-black">
-            <SoftKeyboard
-              onKeyPress={handleSoftKey}
-              onDelete={handleSoftDelete}
-              onSubmit={() => handleSubmit()}
-              onMoveLabel={onMoveLabel}
-            />
-          </div>
-        )}
       </div>
     </div>
   );

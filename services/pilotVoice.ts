@@ -822,27 +822,105 @@ function playRadioClick(settings: VoiceSettings, durationSec = 0.035) {
   }
 }
 
+/** Chrome pauses speechSynthesis after ~15s — keep alive + split long lines. */
+function splitForSpeech(text: string): string[] {
+  const parts = text
+    .split(/(?<=[.!?])\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 1 && text.length > 160) {
+    // Hard wrap very long single sentences.
+    const chunks: string[] = [];
+    let rest = text;
+    while (rest.length > 140) {
+      let cut = rest.lastIndexOf(' ', 140);
+      if (cut < 60) cut = 140;
+      chunks.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) chunks.push(rest);
+    return chunks;
+  }
+  return parts.length ? parts : [text];
+}
+
 function speakBrowser(text: string, callsign: string, settings: VoiceSettings): Promise<void> {
   if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve();
+  const chunks = splitForSpeech(text);
   return new Promise((resolve) => {
-    // Cancel a stuck queue so the new readback starts ASAP.
     try {
       window.speechSynthesis.cancel();
     } catch {
       /* ignore */
     }
     playRadioClick(settings, 0.025);
-    const utter = new SpeechSynthesisUtterance(text);
-    const voice = browserVoice(callsign);
-    if (voice) utter.voice = voice;
-    utter.rate = settings.rate;
-    utter.volume = settings.volume;
-    utter.onend = () => {
+
+    let idx = 0;
+    let keepAlive: number | null = null;
+    let visibilityHandler: (() => void) | null = null;
+
+    const cleanup = () => {
+      if (keepAlive != null) window.clearInterval(keepAlive);
+      if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+      keepAlive = null;
+      visibilityHandler = null;
+    };
+
+    const finish = () => {
+      cleanup();
       playRadioClick(settings, 0.04);
       resolve();
     };
-    utter.onerror = () => resolve();
-    window.speechSynthesis.speak(utter);
+
+    const speakNext = () => {
+      if (idx >= chunks.length) {
+        finish();
+        return;
+      }
+      const utter = new SpeechSynthesisUtterance(chunks[idx]);
+      const voice = browserVoice(callsign);
+      if (voice) utter.voice = voice;
+      utter.rate = settings.rate;
+      utter.volume = settings.volume;
+      utter.onend = () => {
+        idx += 1;
+        speakNext();
+      };
+      utter.onerror = () => {
+        idx += 1;
+        speakNext();
+      };
+      try {
+        window.speechSynthesis.speak(utter);
+      } catch {
+        finish();
+      }
+    };
+
+    // Chrome bug: speechSynthesis freezes if the tab is backgrounded or after ~15s.
+    if (typeof window.setInterval === 'function') {
+      keepAlive = window.setInterval(() => {
+        try {
+          if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
+        } catch {
+          /* ignore */
+        }
+      }, 10_000);
+    }
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      visibilityHandler = () => {
+        if (document.visibilityState === 'visible') {
+          try {
+            window.speechSynthesis.resume();
+          } catch {
+            /* ignore */
+          }
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
+
+    speakNext();
   });
 }
 
@@ -963,11 +1041,12 @@ export function prewarmInstructorLine(text: string, rate = 1.05) {
 
 /**
  * Narrate instructor text: natural Kokoro when ready+warmed; else Web Speech.
- * Not latency-critical — may wait briefly for synthesis. Callers can prewarm the next line.
+ * If Kokoro stalls beyond kokoroBudgetMs (default 2s), fall back to Web Speech for that line.
+ * Never blocks the tutorial UI — captions are authoritative.
  */
 export function speakInstructorLine(
   text: string,
-  opts?: { rate?: number; onend?: () => void; prewarmNext?: string },
+  opts?: { rate?: number; onend?: () => void; prewarmNext?: string; kokoroBudgetMs?: number },
 ): void {
   if (!text) {
     opts?.onend?.();
@@ -976,17 +1055,22 @@ export function speakInstructorLine(
   stopInstructorAudio();
   const token = instructorToken;
   const rate = opts?.rate ?? 1.05;
+  const budget = opts?.kokoroBudgetMs ?? 2_000;
   unlockAudio();
 
   if (opts?.prewarmNext) {
     prewarmInstructorLine(opts.prewarmNext, rate);
   }
 
+  const fallbackBrowser = async () => {
+    if (token !== instructorToken) return;
+    await speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 });
+    if (token === instructorToken) opts?.onend?.();
+  };
+
   if (!isInstructorNaturalReady() || !kokoro) {
     void ensureEngine();
-    void speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 }).then(() => {
-      if (token === instructorToken) opts?.onend?.();
-    });
+    void fallbackBrowser();
     return;
   }
 
@@ -1002,7 +1086,7 @@ export function speakInstructorLine(
       } else {
         const audio = await withTimeout(
           kokoro!.generate(text, { voice: INSTRUCTOR_VOICE, speed: rate, priority: 'high' }),
-          SLOW_GENERATE_MS,
+          budget,
         );
         samples = audio.samples;
         sampleRate = audio.sampleRate;
@@ -1011,7 +1095,7 @@ export function speakInstructorLine(
       if (token !== instructorToken) return;
       unlockAudio();
       if (!audioCtx || !samples?.length) {
-        opts?.onend?.();
+        await fallbackBrowser();
         return;
       }
       const buffer = audioCtx.createBuffer(1, samples.length, sampleRate);
@@ -1029,9 +1113,7 @@ export function speakInstructorLine(
       };
       source.start();
     } catch {
-      if (token !== instructorToken) return;
-      await speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 });
-      if (token === instructorToken) opts?.onend?.();
+      await fallbackBrowser();
     }
   };
   void play();
