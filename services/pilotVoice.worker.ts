@@ -81,7 +81,10 @@ async function initKokoro() {
     import('@huggingface/transformers'),
   ]);
   const env = transformers.env;
-  env.allowLocalModels = false;
+  // Same-origin /voice/… weights (build-time fetch) + Cache API.
+  env.allowLocalModels = true;
+  env.allowRemoteModels = true;
+  env.localModelPath = '/voice/';
   env.useBrowserCache = true;
   try {
     const canThread = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;

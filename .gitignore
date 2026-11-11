@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Self-hosted Kokoro weights (fetched at build / npm run fetch-voice)
+public/voice/onnx-community/

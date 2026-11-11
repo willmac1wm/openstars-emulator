@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "fetch-voice": "node scripts/fetch-kokoro-assets.mjs",
+    "prebuild": "npm run fetch-voice",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
