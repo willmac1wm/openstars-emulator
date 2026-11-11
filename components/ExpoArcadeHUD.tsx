@@ -36,9 +36,9 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
       className="w-full h-full min-h-0 flex flex-col gap-1.5"
       data-testid="expo-arcade-hud"
     >
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         <div
-          className={`font-mono text-xl font-bold px-2 py-0.5 rounded border ${
+          className={`font-mono text-lg font-bold px-2 py-0 rounded border ${
             remainingMs < 30000
               ? 'text-red-400 border-red-700'
               : 'text-green-300 border-green-800'
@@ -46,20 +46,19 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         >
           {formatClock(remainingMs)}
         </div>
+        {banner && (
+          <div className="flex-1 min-w-0 truncate bg-amber-500/20 border border-amber-400 text-amber-100 text-[10px] font-bold px-1.5 py-0.5 rounded">
+            {banner}
+          </div>
+        )}
         <button
           type="button"
           onClick={onFullscreen}
-          className="ml-auto text-[10px] uppercase tracking-wider border border-gray-700 text-gray-400 px-2 py-1 rounded hover:text-white"
+          className="ml-auto shrink-0 text-[9px] uppercase tracking-wider border border-gray-700 text-gray-400 px-1.5 py-0.5 rounded hover:text-white"
         >
           Fullscreen
         </button>
       </div>
-
-      {banner && (
-        <div className="shrink-0 bg-amber-500/20 border border-amber-400 text-amber-100 text-xs font-bold px-2 py-1 rounded">
-          {banner}
-        </div>
-      )}
 
       <div className="shrink-0">
         <PushToTalk compact onTranscript={onTranscript} onError={onSpeechError} />
