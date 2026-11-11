@@ -15,6 +15,8 @@ interface ExpoArcadeHUDProps {
   onFullscreen: () => void;
   /** Guided how-to-play — hide the arcade countdown. */
   tutorial?: boolean;
+  /** Callsigns on scope for desktop Whisper prompt biasing. */
+  activeCallsigns?: string[];
 }
 
 function formatClock(ms: number): string {
@@ -34,6 +36,7 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
   onIssue,
   onFullscreen,
   tutorial = false,
+  activeCallsigns = [],
 }) => {
   return (
     <div
@@ -68,7 +71,12 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
       </div>
 
       <div className="shrink-0">
-        <PushToTalk compact onTranscript={onTranscript} onError={onSpeechError} />
+        <PushToTalk
+          compact
+          onTranscript={onTranscript}
+          onError={onSpeechError}
+          activeCallsigns={activeCallsigns}
+        />
       </div>
 
       {/* Collapsed transcript — single line so Issue stays on-screen */}

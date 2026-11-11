@@ -10,6 +10,9 @@ import AttractMode from './components/AttractMode';
 import ArcadeSummary from './components/ArcadeSummary';
 import ExpoArcadeHUD from './components/ExpoArcadeHUD';
 import GuidedTutorial, { TutorialActionSink, TutorialBridge } from './components/tutorial/GuidedTutorial';
+import DesktopSettings from './components/DesktopSettings';
+import { isDesktopApp } from './services/desktop';
+import { initDesktopStt } from './services/desktopStt';
 import VtfSetup from './components/vtf/VtfSetup';
 import ApproachScope from './components/vtf/ApproachScope';
 import VtfPanel from './components/vtf/VtfPanel';
@@ -104,6 +107,7 @@ const App: React.FC = () => {
   const spokenFillTokenRef = useRef(0);
   const [showArcadeSummary, setShowArcadeSummary] = useState(false);
   const [conflictAlarm, setConflictAlarm] = useState(false);
+  const [desktopSettingsOpen, setDesktopSettingsOpen] = useState(false);
   const [showVtfSetup, setShowVtfSetup] = useState(false);
   const [vtfActive, setVtfActive] = useState(false);
   const [vtfTranscript, setVtfTranscript] = useState('');
@@ -129,6 +133,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const saved = localStorage.getItem('openstars_highscore');
     if (saved) setHighScore(parseInt(saved));
+  }, []);
+
+  // Desktop: warm Whisper STT (models bundled in the installer).
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    void initDesktopStt().catch(() => undefined);
   }, []);
 
   // --- ORIENTATION LOGIC ---
@@ -1098,9 +1108,24 @@ const App: React.FC = () => {
             onIssue={handleCommand}
             onFullscreen={requestFullscreen}
             tutorial={tutorialActive}
+            activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
           />
         ) : null}
       />
+
+      {isDesktopApp() && (
+        <>
+          <button
+            type="button"
+            data-testid="desktop-settings-open"
+            onClick={() => setDesktopSettingsOpen(true)}
+            className="absolute bottom-2 left-2 z-40 text-[10px] uppercase tracking-wider border border-gray-700 bg-black/70 text-gray-300 px-2 py-1 rounded hover:text-white"
+          >
+            Desktop settings
+          </button>
+          <DesktopSettings open={desktopSettingsOpen} onClose={() => setDesktopSettingsOpen(false)} />
+        </>
+      )}
     </div>
   );
 };

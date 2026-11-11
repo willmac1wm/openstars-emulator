@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff } from 'lucide-react';
 import { createSpeechRecognition, isSpeechRecognitionSupported, SpeechResultPayload } from '../services/speechRecognition';
+import { isDesktopApp } from '../services/desktop';
+import {
+  buildAtcInitialPrompt,
+  startDesktopCapture,
+  stopDesktopCaptureAndTranscribe,
+} from '../services/desktopStt';
 
 interface PushToTalkProps {
   disabled?: boolean;
@@ -8,14 +14,27 @@ interface PushToTalkProps {
   compact?: boolean;
   onTranscript: (payload: SpeechResultPayload) => void;
   onError?: (message: string) => void;
+  /** Live scope callsigns for Whisper initial_prompt biasing (desktop). */
+  activeCallsigns?: string[];
 }
 
-const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript, onError }) => {
+const PushToTalk: React.FC<PushToTalkProps> = ({
+  disabled,
+  compact,
+  onTranscript,
+  onError,
+  activeCallsigns = [],
+}) => {
   const [holding, setHolding] = useState(false);
-  const [supported] = useState(() => isSpeechRecognitionSupported());
+  const desktop = isDesktopApp();
+  const [supported] = useState(() => desktop || isSpeechRecognitionSupported());
   const handleRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
+  const callsignsRef = useRef(activeCallsigns);
+  callsignsRef.current = activeCallsigns;
+  const busyRef = useRef(false);
 
   useEffect(() => {
+    if (desktop) return undefined;
     handleRef.current = createSpeechRecognition({
       onPartial: (payload) => onTranscript(payload),
       onFinal: (payload) => onTranscript(payload),
@@ -23,10 +42,18 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript
       onEnd: () => setHolding(false),
     });
     return () => handleRef.current?.abort();
-  }, [onError, onTranscript]);
+  }, [desktop, onError, onTranscript]);
 
   const begin = () => {
-    if (disabled) return;
+    if (disabled || busyRef.current) return;
+    if (desktop) {
+      setHolding(true);
+      void startDesktopCapture().catch((err) => {
+        setHolding(false);
+        onError?.(err instanceof Error ? err.message : 'Mic error');
+      });
+      return;
+    }
     if (!supported) {
       onError?.('Voice commands need Chrome or Edge. Use the tap pad or type.');
       return;
@@ -36,6 +63,21 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript
   };
 
   const end = () => {
+    if (desktop) {
+      if (!holding && !busyRef.current) return;
+      setHolding(false);
+      busyRef.current = true;
+      const prompt = buildAtcInitialPrompt(callsignsRef.current);
+      void stopDesktopCaptureAndTranscribe(prompt)
+        .then((payload) => {
+          if (payload) onTranscript(payload);
+        })
+        .catch((err) => onError?.(err instanceof Error ? err.message : 'STT error'))
+        .finally(() => {
+          busyRef.current = false;
+        });
+      return;
+    }
     setHolding(false);
     handleRef.current?.stop();
   };
@@ -90,7 +132,11 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript
       </span>
       {!compact && (
         <span className="text-[11px] font-normal opacity-80">
-          {supported ? 'or hold SPACEBAR' : 'mic unavailable — use tap / type'}
+          {desktop
+            ? 'Desktop Whisper · or hold SPACEBAR'
+            : supported
+              ? 'or hold SPACEBAR'
+              : 'mic unavailable — use tap / type'}
         </span>
       )}
     </button>

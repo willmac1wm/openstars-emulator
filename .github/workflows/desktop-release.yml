@@ -1,0 +1,134 @@
+# Build OpenSTARS desktop (Tauri v2) for macOS + Windows and publish to GitHub Releases.
+# Optional signing: set secrets below (never commit values).
+#
+# Apple (optional notarization / Developer ID):
+#   APPLE_CERTIFICATE          - base64 .p12
+#   APPLE_CERTIFICATE_PASSWORD
+#   APPLE_SIGNING_IDENTITY     - e.g. "Developer ID Application: …"
+#   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+#   Team ID (public): Y6P8GK8M2N
+#
+# Windows (optional Authenticode):
+#   WINDOWS_CERTIFICATE        - base64 .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD
+#
+# If secrets are absent, builds are unsigned (Gatekeeper / SmartScreen warnings expected).
+
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. desktop-v0.1.0)'
+        required: true
+        default: 'desktop-v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust_target: aarch64-apple-darwin
+          - platform: macos-13
+            args: '--target x86_64-apple-darwin'
+            rust_target: x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            rust_target: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Fetch desktop models (HF + checksum files)
+        run: npm run fetch-desktop-models
+        env:
+          WHISPER_TURBO_Q5_SHA256: ${{ secrets.WHISPER_TURBO_Q5_SHA256 }}
+          WHISPER_SMALL_Q5_SHA256: ${{ secrets.WHISPER_SMALL_Q5_SHA256 }}
+          WHISPER_BASE_Q5_SHA256: ${{ secrets.WHISPER_BASE_Q5_SHA256 }}
+
+      - name: Import Apple certificate (optional)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret — building unsigned (Gatekeeper will warn)."
+            exit 0
+          fi
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          rm -f /tmp/cert.p12
+
+      - name: Import Windows certificate (optional)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host "No WINDOWS_CERTIFICATE secret — building unsigned (SmartScreen will warn)."
+            exit 0
+          }
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP/cert.pfx", $bytes)
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Offline OpenSTARS for expos (Mac + Windows).
+            - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
+            - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
+            - Publisher: OpenSTARS · no PII · no analytics
+
+            **Signing:** unsigned if Apple/Windows secrets were not set — expect Gatekeeper/SmartScreen warnings until Will adds signing secrets.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

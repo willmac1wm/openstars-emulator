@@ -14,6 +14,8 @@ type PostHog = {
 let client: PostHog | null = null;
 
 export const initAnalytics = () => {
+  // Desktop installers ship offline with no analytics / no PII collection.
+  if (import.meta.env.VITE_OPENSTARS_DESKTOP === '1') return;
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (!key || client) return;
 
