@@ -26,3 +26,15 @@ dist-ssr
 
 # Self-hosted Kokoro weights (fetched at build / npm run fetch-voice)
 public/voice/onnx-community/
+
+# Tauri / desktop
+src-tauri/target/
+src-tauri/resources/models/whisper/
+src-tauri/resources/models/kokoro/
+*.dmg
+*.msi
+*.exe
+*.AppImage
+
+# Local Playwright / agent scratch
+.playwright-mcp/

@@ -4,7 +4,9 @@ import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
 import { getVoiceRuntime, subscribeVoiceRuntime, useBasicVoiceNow, VoiceRuntime } from '../services/pilotVoice';
 import VoicePreloadBanner from './VoicePreloadBanner';
+import DesktopDownload from './DesktopDownload';
 import { ENABLE_VECTOR_TO_FINAL } from '../services/features';
+import { isDesktopApp } from '../services/desktop';
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
@@ -268,6 +270,7 @@ const MainMenu: React.FC<MainMenuProps> = ({
           </div>
         </aside>
       </div>
+      {!isDesktopApp() && <DesktopDownload />}
       </div>
     </div>
   );

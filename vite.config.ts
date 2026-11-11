@@ -1,9 +1,15 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const isDesktop = process.env.VITE_OPENSTARS_DESKTOP === '1';
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  clearScreen: false,
   plugins: [
     react(),
     tailwindcss(),
@@ -23,14 +29,24 @@ export default defineConfig({
       },
     },
   ],
+  resolve: {
+    alias: isDesktop
+      ? {
+          // Desktop installer must not embed eSpeak NG (GPL-3.0).
+          phonemizer: path.resolve(rootDir, 'services/phonemizerDesktopShim.ts'),
+        }
+      : {},
+  },
   server: {
     host: '0.0.0.0',
     port: 8080,
+    strictPort: true,
   },
   preview: {
     host: '0.0.0.0',
     port: 4173,
   },
+  envPrefix: ['VITE_', 'TAURI_'],
   optimizeDeps: {
     exclude: ['kokoro-js', '@huggingface/transformers', 'onnxruntime-web', 'phonemizer'],
   },
@@ -48,5 +64,7 @@ export default defineConfig({
   build: {
     sourcemap: false,
     minify: 'esbuild',
+    // Tauri expects a relative base for asset:// loading.
+    ...(isDesktop ? { target: ['es2021', 'chrome100', 'safari14'] } : {}),
   },
 });
