@@ -1,9 +1,12 @@
-import { Aircraft, AlertLevel, GameScenario } from '../types';
-import { CENTER, GATE_RADIUS } from '../constants';
+import { Aircraft, GameScenario } from '../types';
+import { GATE_RADIUS } from '../constants';
 import { createSeededRandom, seedFromLabel } from './seededRandom';
+import { placeInboundAircraft, polarPos } from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
 export const ATTRACT_IDLE_MS = 60 * 1000;
+/** Second plane of the opening pair arrives after this delay. */
+export const ARCADE_STAGGER_MS = 12_000;
 
 export type CurveballKind = 'nordo' | 'goaround';
 
@@ -19,49 +22,10 @@ export interface ArcadeRoundPlan {
   name: string;
   seedLabel: string;
   durationMs: number;
+  /** Parallel to waves — when each wave is added (wave 0 is t=0 initial). */
+  waveAtMs: number[];
   waves: Aircraft[][];
   curveball: ArcadeCurveball;
-}
-
-function pos(deg: number, dist: number) {
-  const rad = (deg - 90) * (Math.PI / 180);
-  return { x: CENTER + dist * Math.cos(rad), y: CENTER + dist * Math.sin(rad) };
-}
-
-function makeAc(
-  callsign: string,
-  type: string,
-  angle: number,
-  dist: number,
-  heading: number,
-  altitude: number,
-  speed: number,
-  destination: string,
-  special?: Aircraft['special'],
-): Aircraft {
-  const p = pos(angle, dist);
-  return {
-    id: `arcade-${callsign}-${angle}`,
-    callsign,
-    type,
-    x: p.x,
-    y: p.y,
-    heading,
-    targetHeading: heading,
-    altitude,
-    targetAltitude: altitude,
-    speed,
-    targetSpeed: speed,
-    history: [],
-    status: dist <= GATE_RADIUS ? 'ACTIVE' : 'INBOUND',
-    cleared: false,
-    alertLevel: AlertLevel.NONE,
-    messages: [],
-    isSelected: false,
-    destination,
-    dataBlockDir: 45,
-    special,
-  };
 }
 
 export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
@@ -69,19 +33,34 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
   const curveballKinds: CurveballKind[] = ['nordo', 'goaround'];
   const kind = curveballKinds[Math.floor(random() * curveballKinds.length)];
 
-  // Spawn inside the scope ring at brisk speeds (270–295 kts) aimed near their target gates
-  // so players can vector and clear Wave 1 within ~45–60 seconds.
-  const wave1 = [
-    makeAc('AAL421', 'A321', 140, GATE_RADIUS - 110, 185, 80, 280, 'SOU'),
-    makeAc('UAL123', 'B738', 235, GATE_RADIUS - 100, 275, 90, 285, 'WES'),
-  ];
+  const placed: Aircraft[] = [];
+  const mk = (
+    callsign: string,
+    type: string,
+    destination: string,
+    altitude: number,
+    speed: number,
+    special?: Aircraft['special'],
+  ) => {
+    const ac = placeInboundAircraft(
+      { callsign, type, destination, altitude, speed, special, idPrefix: 'arcade' },
+      placed,
+      random,
+    );
+    placed.push(ac);
+    return ac;
+  };
+
+  // Stagger opening pair: first at t=0, second ~12s later. Later waves escalate.
+  const wave0 = [mk('AAL421', 'A321', 'SOU', 80, 250)];
+  const wave1 = [mk('UAL123', 'B738', 'WES', 90, 255)];
   const wave2 = [
-    makeAc('DAL456', 'B737', 55, GATE_RADIUS - 95, 110, 80, 275, 'EAS'),
-    makeAc('SWA890', 'B738', 330, GATE_RADIUS - 90, 40, 70, 280, 'NOR'),
+    mk('DAL456', 'B737', 'EAS', 80, 260),
+    mk('SWA890', 'B738', 'NOR', 70, 250),
   ];
   const wave3 = [
-    makeAc('JBU512', 'A320', 150, GATE_RADIUS - 85, 200, 90, 290, 'SOU'),
-    makeAc('ASA188', 'B739', 60, GATE_RADIUS - 80, 115, 85, 280, 'EAS'),
+    mk('JBU512', 'A320', 'SOU', 90, 265),
+    mk('ASA188', 'B739', 'EAS', 85, 255),
   ];
 
   let curveball: ArcadeCurveball;
@@ -106,7 +85,8 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
     name: 'Expo Arcade Shift',
     seedLabel,
     durationMs: ARCADE_DURATION_MS,
-    waves: [wave1, wave2, wave3],
+    waveAtMs: [0, ARCADE_STAGGER_MS, 55_000, 105_000],
+    waves: [wave0, wave1, wave2, wave3],
     curveball,
   };
 }
@@ -118,23 +98,37 @@ export function arcadeWaveAircraft(plan: ArcadeRoundPlan, waveIndex: number): Ai
 export function spawnCurveballAircraft(plan: ArcadeRoundPlan): Aircraft | null {
   const { curveball } = plan;
   if (curveball.kind === 'nordo') {
-    return makeAc('N123NR', 'C172', 180, GATE_RADIUS - 60, 0, 60, 220, 'NOR', 'nordo');
+    const random = createSeededRandom(seedFromLabel(`${plan.seedLabel}-nordo`));
+    return placeInboundAircraft(
+      {
+        callsign: 'N123NR',
+        type: 'C172',
+        destination: 'NOR',
+        altitude: 60,
+        speed: 140,
+        special: 'nordo',
+        idPrefix: 'arcade',
+      },
+      [],
+      random,
+    );
   }
-  return null; // goaround mutates an existing aircraft
+  return null;
 }
 
 export function applyGoAround(aircraft: Aircraft[]): Aircraft[] {
   return aircraft.map((ac) => {
     if (ac.callsign !== 'AAL421' || ac.status === 'HANDOFF') return ac;
-    const p = pos(80, GATE_RADIUS - 110);
+    // Re-enter from the east outer ring, heading westbound inbound — still solvable.
+    const p = polarPos(90, GATE_RADIUS + 60);
     return {
       ...ac,
       x: p.x,
       y: p.y,
-      heading: 100,
-      targetHeading: 100,
-      status: 'ACTIVE',
-      destination: 'EAS',
+      heading: 270,
+      targetHeading: 270,
+      status: 'INBOUND',
+      destination: 'WES',
       special: 'goaround',
       handoffResult: undefined,
     };
@@ -154,7 +148,7 @@ export function planToInitialScenario(plan: ArcadeRoundPlan): GameScenario {
 
 /** JO 7110.65-style short lines for arcade events (template, not LLM). */
 export function curveballPilotPhrase(kind: CurveballKind): string {
-  if (kind === 'nordo') return ''; // NORDO cannot reply
+  if (kind === 'nordo') return '';
   return 'Going around, American four twenty-one';
 }
 

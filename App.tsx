@@ -295,16 +295,19 @@ const App: React.FC = () => {
     setArcadeEndsAt(endsAt);
     setArcadeRemainingMs(plan.durationMs);
 
-    // Escalating waves
+    // Escalating / staggered waves (wave 0 already on scope; delays from plan.waveAtMs)
     plan.waves.slice(1).forEach((wave, index) => {
+      const waveIndex = index + 1;
+      const delay = plan.waveAtMs?.[waveIndex] ?? waveIndex * 50_000;
       const timer = window.setTimeout(() => {
         setAircraft((prev) => {
-          const incoming = arcadeWaveAircraft(plan, index + 1);
+          const incoming = arcadeWaveAircraft(plan, waveIndex);
           return [...prev, ...incoming.map((ac) => ({ ...ac, isSelected: false }))];
         });
-        setArcadeBanner(`WAVE ${index + 2} INBOUND`);
-        addLog(`WAVE ${index + 2}: ${wave.length} AIRCRAFT`, 'system');
-      }, (index + 1) * 50_000);
+        const label = waveIndex === 1 ? 'TRAFFIC' : `WAVE ${waveIndex + 1}`;
+        setArcadeBanner(`${label} INBOUND`);
+        addLog(`${label}: ${wave.length} AIRCRAFT`, 'system');
+      }, delay);
       waveTimersRef.current.push(timer);
     });
 
