@@ -123,12 +123,12 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
-            Offline OpenSTARS for expos (Mac + Windows).
+            Offline OpenSTARS for expos (Mac + Windows) — **pre-release, unsigned**.
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
             - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
             - Publisher: OpenSTARS · no PII · no analytics
 
-            **Signing:** unsigned if Apple/Windows secrets were not set — expect Gatekeeper/SmartScreen warnings until Will adds signing secrets.
+            **Signing:** unsigned — expect Gatekeeper/SmartScreen warnings until Apple/Windows signing secrets are added.
           releaseDraft: false
-          prerelease: false
+          prerelease: true
           args: ${{ matrix.args }}
