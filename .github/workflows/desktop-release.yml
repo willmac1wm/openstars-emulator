@@ -109,27 +109,31 @@ jobs:
           $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP/cert.pfx", $bytes)
 
-      # Empty APPLE_SIGNING_IDENTITY makes tauri codesign with "" and fail.
-      # Ad-hoc "-" keeps unsigned Gatekeeper-warn builds working in CI.
-      - name: Configure macOS signing identity
+      # Empty APPLE_* env vars make tauri attempt notarization with Team ID "".
+      # Ad-hoc "-" signs without notarizing when Apple secrets are absent.
+      - name: Configure macOS signing / notarization env
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ]; then
+          if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ] && [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
             echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_SECRET" >> "$GITHUB_ENV"
+            echo "APPLE_ID=$APPLE_ID_SECRET" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD_SECRET" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET" >> "$GITHUB_ENV"
+            echo "Using Developer ID + notarization secrets."
           else
             echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-            echo "Using ad-hoc macOS signature (unsigned distribution)."
+            echo "Using ad-hoc macOS signature (no notarization)."
           fi
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
