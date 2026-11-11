@@ -4,11 +4,13 @@ import { createSpeechRecognition, isSpeechRecognitionSupported } from '../servic
 
 interface PushToTalkProps {
   disabled?: boolean;
+  /** Shorter control for classroom panel heights (1024×640). */
+  compact?: boolean;
   onTranscript: (text: string, isFinal: boolean) => void;
   onError?: (message: string) => void;
 }
 
-const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, onTranscript, onError }) => {
+const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, compact, onTranscript, onError }) => {
   const [holding, setHolding] = useState(false);
   const [supported] = useState(() => isSpeechRecognitionSupported());
   const handleRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
@@ -71,7 +73,11 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, onTranscript, onError
       onPointerUp={end}
       onPointerLeave={() => holding && end()}
       onContextMenu={(event) => event.preventDefault()}
-      className={`w-full min-h-[72px] rounded-xl border-2 font-bold text-lg md:text-xl tracking-wide flex flex-col items-center justify-center gap-1 select-none ${
+      className={`w-full rounded-xl border-2 font-bold tracking-wide flex flex-col items-center justify-center select-none ${
+        compact
+          ? 'min-h-[40px] text-sm gap-0 py-1'
+          : 'min-h-[72px] text-lg md:text-xl gap-1'
+      } ${
         holding
           ? 'bg-red-600 border-red-300 text-white shadow-[0_0_30px_rgba(239,68,68,0.55)] scale-[1.02]'
           : 'bg-red-900/50 border-red-500 text-red-100 hover:bg-red-800/70'
@@ -79,12 +85,14 @@ const PushToTalk: React.FC<PushToTalkProps> = ({ disabled, onTranscript, onError
       aria-pressed={holding}
     >
       <span className="flex items-center gap-2">
-        {holding ? <Mic size={22} /> : <MicOff size={22} />}
+        {holding ? <Mic size={compact ? 16 : 22} /> : <MicOff size={compact ? 16 : 22} />}
         {holding ? 'LISTENING…' : 'HOLD TO TALK'}
       </span>
-      <span className="text-[11px] font-normal opacity-80">
-        {supported ? 'or hold SPACEBAR' : 'mic unavailable — use tap / type'}
-      </span>
+      {!compact && (
+        <span className="text-[11px] font-normal opacity-80">
+          {supported ? 'or hold SPACEBAR' : 'mic unavailable — use tap / type'}
+        </span>
+      )}
     </button>
   );
 };
