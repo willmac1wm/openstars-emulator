@@ -90,8 +90,6 @@ const TutorialOverlay: React.FC<Props> = ({
   if (!step) return null;
 
   const waiting = state.phase === 'waiting' || state.phase === 'hint';
-  // Your-turn: action prompt is the on-screen instruction; narration still speaks (sr-only caption).
-  const showCaption = !(waiting && step.actionPrompt);
 
   return (
     <div
@@ -114,20 +112,18 @@ const TutorialOverlay: React.FC<Props> = ({
             <span data-testid="tutorial-progress">{progress}%</span>
           </span>
         </div>
-        {showCaption && (
-          <div
-            data-testid="tutorial-caption"
-            className="font-mono text-xs sm:text-sm md:text-base leading-snug text-white"
-            aria-live="polite"
-          >
-            {step.narration}
-          </div>
-        )}
-        {!showCaption && (
-          <div data-testid="tutorial-caption" className="sr-only" aria-live="polite">
-            {step.narration}
-          </div>
-        )}
+        {/* Captions always visible — audio may fail on Safari / autoplay; text is the source of truth. */}
+        <div
+          data-testid="tutorial-caption"
+          className={`font-mono leading-snug text-white ${
+            waiting && step.actionPrompt
+              ? 'text-[11px] sm:text-xs text-cyan-100/90'
+              : 'text-xs sm:text-sm md:text-base'
+          }`}
+          aria-live="polite"
+        >
+          {step.narration}
+        </div>
         {step.actionPrompt && waiting && (
           <div
             data-testid="tutorial-action-prompt"

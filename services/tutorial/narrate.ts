@@ -3,6 +3,7 @@
  * Captions always show in the overlay; audio must never block step advance.
  */
 import {
+  getVoiceRuntime,
   isInstructorNaturalReady,
   prewarmInstructorLine,
   speakInstructorLine,
@@ -54,14 +55,15 @@ export function speakInstructor(
   if (typeof window !== 'undefined') {
     (window as Window & { __tutorialNarrations?: string[] }).__tutorialNarrations = [...narrationLog];
   }
-  const natural = isInstructorNaturalReady();
+  // Badge tracks what we will try first (slow neural → Web Speech immediately).
+  const natural = isInstructorNaturalReady() && getVoiceRuntime().neuralFastEnough;
   setEngine(natural ? 'kokoro' : 'webspeech');
   speakInstructorLine(text, {
     rate: opts?.rate ?? 1.05,
     onend: opts?.onend,
     prewarmNext: opts?.prewarmNext,
     /** Stall budget before falling back to Web Speech for this line. */
-    kokoroBudgetMs: 2_000,
+    kokoroBudgetMs: 3_500,
   });
 }
 
