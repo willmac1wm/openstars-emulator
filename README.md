@@ -11,7 +11,7 @@ Production for this repository is **[https://openstars-emulator.vercel.app](http
 That is the GitHub repository homepage, and it is the Vercel project (`openstars-emulator`) updated by this repo. The page title and HTML match this project. These other live demos are different builds and are not updated by this branch:
 
 - https://macomber-openstars.vercel.app
-- https://stars-gate.vercel.app
+- https://stars-gate.vercel.app — **intended** to alias this project’s production; until the domain is moved in Vercel it still serves an older unrelated SPA. **Do not delete** that old Vercel project. Rollback fingerprint (recorded 2026-11-12): bundle `assets/index-COj7qiGL.js` (sha256 `fb2f08bf8115483f86a6225833f785febac92f4b744a5d3246f3880bdbdc0bd9`, 867804 bytes); UI has Learning mode / credits; **no** J-RINGS, **no** `/voice` assets, **no** current How to Play narration. Destination after cutover: same content as `openstars-emulator.vercel.app` (e.g. `assets/index-DEXT_bXJ.js` with J-RINGS + narration fix). Cutover: openstars-emulator project → Settings → Domains → Add `stars-gate.vercel.app` → confirm Move Domain (leave old project intact).
 
 Do not treat a pull request as a production deploy. Vercel may publish a preview URL for the PR; production stays on the link above until someone promotes a deployment.
 
