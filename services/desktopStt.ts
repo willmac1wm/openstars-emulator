@@ -3,7 +3,10 @@
  * then feed the transcript into the existing ATC post-processor.
  */
 import { invokeDesktop, isDesktopApp } from './desktop';
+import { buildAtcInitialPrompt } from './atcPrompt';
 import type { SpeechResultPayload } from './speechRecognition';
+
+export { buildAtcInitialPrompt } from './atcPrompt';
 
 export interface DesktopSttStatus {
   ready: boolean;
@@ -148,14 +151,4 @@ export async function stopDesktopCaptureAndTranscribe(
     alternatives: alts,
     isFinal: true,
   };
-}
-
-/** Build Whisper initial_prompt from ATC vocab + live callsigns. */
-export function buildAtcInitialPrompt(callsigns: string[]): string {
-  const base =
-    'Air traffic control radio. United American Delta Southwest. '
-    + 'Turn left heading, turn right heading, climb and maintain, descend and maintain, '
-    + 'reduce speed, increase speed, knots, thousand, niner, flight level.';
-  const cs = callsigns.slice(0, 12).join(' ');
-  return cs ? `${base} Active aircraft: ${cs}.` : base;
 }

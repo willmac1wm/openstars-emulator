@@ -92,6 +92,16 @@ const CORPUS: Array<{ name: string; heard: string | string[]; expect: string | {
     expect: 'UAL123 A080',
   },
   {
+    name: 'spoken dollar → digits',
+    heard: 'united one two three descend and maintain dollar 8000',
+    expect: 'UAL123 A080',
+  },
+  {
+    name: 'climband compound',
+    heard: 'Delta four five six climband maintain seven thousand',
+    expect: 'DAL456 A070',
+  },
+  {
     name: 'niner in heading',
     heard: 'American four twenty one turn right heading zero niner zero',
     expect: 'AAL421 TR090',

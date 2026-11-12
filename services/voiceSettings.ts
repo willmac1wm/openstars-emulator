@@ -17,6 +17,11 @@ export interface VoiceSettings {
    * Default on. Master SFX off also mutes CA.
    */
   conflictAlertSound: boolean;
+  /**
+   * Accurate speech (beta): in-browser Whisper on WebGPU when ready.
+   * Default off — falls back silently to Web Speech. Audio never leaves the device.
+   */
+  accurateSpeech: boolean;
 }
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
@@ -27,6 +32,7 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   naturalVoices: false,
   soundEffects: true,
   conflictAlertSound: true,
+  accurateSpeech: false,
 };
 
 const STORAGE_KEY = 'openstars_voice';
@@ -47,6 +53,7 @@ function sanitize(raw: Partial<VoiceSettings> | null): VoiceSettings {
     naturalVoices: raw?.naturalVoices === true,
     soundEffects: raw?.soundEffects !== false,
     conflictAlertSound: raw?.conflictAlertSound !== false,
+    accurateSpeech: raw?.accurateSpeech === true,
   };
 }
 

@@ -63,6 +63,18 @@ const VoiceBar: React.FC = () => {
       </button>
       <button
         type="button"
+        data-testid="accurate-speech-toggle"
+        title="Accurate speech (beta): on-device Whisper tiny.en via WebGPU (~45MB). Falls back to browser speech if unavailable. Audio never leaves your device."
+        aria-pressed={settings.accurateSpeech}
+        onClick={() => updateVoiceSettings({ accurateSpeech: !settings.accurateSpeech })}
+        className={`px-1.5 py-0.5 rounded border ${
+          settings.accurateSpeech ? 'border-violet-500 text-violet-100' : 'border-gray-700 text-gray-500'
+        }`}
+      >
+        {settings.accurateSpeech ? 'STT·AI' : 'STT'}
+      </button>
+      <button
+        type="button"
         data-testid="sound-effects-toggle"
         title="Gate success chimes and penalty tones (Web Audio). Does not mute pilot readbacks."
         aria-pressed={settings.soundEffects}

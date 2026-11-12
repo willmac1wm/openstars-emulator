@@ -1,8 +1,22 @@
+interface SpeechGrammar {
+  src: string;
+  weight: number;
+}
+
+interface SpeechGrammarList {
+  readonly length: number;
+  addFromString: (grammar: string, weight?: number) => void;
+  addFromURI: (src: string, weight?: number) => void;
+  item: (index: number) => SpeechGrammar;
+  [index: number]: SpeechGrammar;
+}
+
 interface SpeechRecognition extends EventTarget {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
+  grammars: SpeechGrammarList;
   start: () => void;
   stop: () => void;
   abort: () => void;
@@ -39,4 +53,6 @@ interface SpeechRecognitionAlternative {
 interface Window {
   SpeechRecognition?: new () => SpeechRecognition;
   webkitSpeechRecognition?: new () => SpeechRecognition;
+  SpeechGrammarList?: new () => SpeechGrammarList;
+  webkitSpeechGrammarList?: new () => SpeechGrammarList;
 }
