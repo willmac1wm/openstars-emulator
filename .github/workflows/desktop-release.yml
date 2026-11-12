@@ -32,9 +32,9 @@ jobs:
   build:
     strategy:
       fail-fast: false
-      # Serialize Mac jobs so deep codesign of ~900MB model resources does not
-      # contend across parallel notarization uploads (aarch64 timed out at 90m).
-      max-parallel: 2
+      # Serialize matrix jobs: deep codesign of ~900MB model resources + Apple
+      # notarization can hang or starve when aarch64 and x64 run together.
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest
