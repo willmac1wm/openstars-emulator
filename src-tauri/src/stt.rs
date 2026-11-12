@@ -1,8 +1,9 @@
 //! Native Whisper STT (whisper.cpp via whisper-rs).
-//! Models are bundled under resources/models/whisper/.
+//! Models live under app-data `models/whisper/` (first-launch download) or
+//! bundled `resources/models/whisper/` for local/dev builds.
 
 use crate::error::{DesktopError, DesktopResult};
-use crate::models::{first_existing_whisper, whisper_model_candidates};
+use crate::models::{ensure_whisper_models, first_existing_whisper, whisper_model_candidates};
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -124,6 +125,8 @@ fn num_threads() -> std::ffi::c_int {
 
 /// Pick the best model that still feels instant after a quick bench.
 pub fn init_stt(app: &AppHandle) -> DesktopResult<SttStatus> {
+    // Signed Mac builds omit large ggml files from the sealed .app; fetch once.
+    ensure_whisper_models(app)?;
     let candidates = whisper_model_candidates(app)?;
     let existing: Vec<_> = candidates
         .into_iter()
@@ -131,7 +134,7 @@ pub fn init_stt(app: &AppHandle) -> DesktopResult<SttStatus> {
         .collect();
     if existing.is_empty() {
         return Err(DesktopError::msg(
-            "No Whisper models bundled. CI should run scripts/fetch-desktop-models.mjs",
+            "No Whisper models available. First launch needs network to download weights, or run npm run fetch-desktop-models for a local bundle.",
         ));
     }
 

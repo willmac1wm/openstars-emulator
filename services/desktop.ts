@@ -1,6 +1,7 @@
 /**
  * Desktop (Tauri) detection and capability helpers.
- * The web build never loads native models; the desktop installer bundles them.
+ * The web build never loads native models; desktop downloads Whisper weights on first launch
+ * (or uses a local `fetch-desktop-models` bundle under resources/).
  */
 
 export type DesktopPlatform = 'macos' | 'windows' | 'linux' | 'unknown';

@@ -1,6 +1,6 @@
 [package]
 name = "openstars-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "OpenSTARS desktop (offline ATC radar game)"
 authors = ["OpenSTARS"]
 edition = "2021"
@@ -25,6 +25,8 @@ parking_lot = "0.12"
 once_cell = "1"
 base64 = "0.22"
 hound = "3.5"
+# First-launch Whisper weight download (models stay outside the sealed .app).
+ureq = { version = "2.12", default-features = true }
 
 # Whisper STT — ggml models (MIT). Metal/Vulkan enabled via features in CI.
 whisper-rs = { version = "0.13", default-features = true }
