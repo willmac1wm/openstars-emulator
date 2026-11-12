@@ -49,7 +49,7 @@ export async function invokeDesktop<T>(cmd: string, args?: Record<string, unknow
 }
 
 export const DESKTOP_RELEASE_REPO = 'willmac1wm/openstars-emulator';
-export const DESKTOP_RELEASE_TAG = 'desktop-v0.1.0';
+export const DESKTOP_RELEASE_TAG = 'desktop-v0.1.1';
 
 export function desktopReleaseApiUrl(): string {
   return `https://api.github.com/repos/${DESKTOP_RELEASE_REPO}/releases/tags/${DESKTOP_RELEASE_TAG}`;

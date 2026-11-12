@@ -97,7 +97,7 @@ const DesktopDownload: React.FC = () => {
           </div>
           <p className="text-sm text-gray-400">
             Best for expos &amp; offline: better voice recognition (native Whisper) and natural Kokoro voices —
-            fully offline installer. {DESKTOP_RELEASE_TAG} (unsigned pre-release — Gatekeeper / SmartScreen may warn).
+            fully offline installer. {DESKTOP_RELEASE_TAG} — Mac DMGs are Developer ID signed & notarized; Windows may still show SmartScreen until Authenticode is added.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
