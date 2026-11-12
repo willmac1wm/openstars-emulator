@@ -1019,8 +1019,12 @@ const App: React.FC = () => {
               <FlightStripBay aircraft={aircraft} onSelect={handleSelect} selectedId={selectedId} />
           </div>
 
-          {/* CENTER: Radar Scope */}
-          <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+          {/* CENTER: Radar Scope — keep a usable min height during How to Play on portrait phones */}
+          <div
+            className={`flex-1 relative overflow-hidden flex items-center justify-center min-h-0 ${
+              tutorialActive ? 'min-h-[40dvh] landscape:min-h-0' : ''
+            }`}
+          >
             <div className={`relative h-full aspect-square max-w-full shadow-2xl bg-black border-2 rounded-sm box-border ${conflictAlarm ? 'border-red-500 animate-pulse' : 'border-gray-700'}`}>
                 <RadarScope
                   aircraft={aircraft}
@@ -1123,6 +1127,7 @@ const App: React.FC = () => {
         statusMessage={statusMessage}
         onMoveLabel={handleMoveDataBlock}
         expoMode={playMode === 'expo'}
+        tutorial={tutorialActive}
         spokenFill={spokenFill}
         onSpokenFillConsumed={(token) => {
           setSpokenFill((prev) => (prev && prev.token === token ? null : prev));

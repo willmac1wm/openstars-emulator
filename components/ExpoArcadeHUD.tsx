@@ -86,7 +86,7 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         aria-live="polite"
         title={liveTranscript || undefined}
       >
-        {liveTranscript || (tutorial ? 'Instructor captions appear below…' : 'Hold PTT and speak…')}
+        {liveTranscript || (tutorial ? 'Follow the Instructor box — Next / Replay / Skip' : 'Hold PTT and speak…')}
       </div>
 
       <TapCommandPad aircraft={selected} onIssue={onIssue} />
