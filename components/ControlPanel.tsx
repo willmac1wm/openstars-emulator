@@ -29,6 +29,8 @@ interface ControlPanelProps {
   statusMessage: string;
   onMoveLabel?: (dir: number) => void;
   expoMode?: boolean;
+  /** Guided How to Play — keep radar visible; SoftKeyboard closed by default. */
+  tutorial?: boolean;
   arcadeHud?: React.ReactNode;
   spokenFill?: SpokenCommandFill | null;
   onSpokenFillConsumed?: (token: number) => void;
@@ -64,6 +66,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   statusMessage,
   onMoveLabel,
   expoMode = false,
+  tutorial = false,
   arcadeHud = null,
   spokenFill = null,
   onSpokenFillConsumed,
@@ -87,12 +90,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Touch / narrow screens and Expo Mode default the on-screen keyboard open (collapsible).
+  // Touch / narrow / Expo default OSK open — but How to Play keeps it closed so the radar stays visible.
   useEffect(() => {
+    if (tutorial) {
+      setShowSoftKeyboard(false);
+      return;
+    }
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     const narrow = window.innerWidth < 1024;
     setShowSoftKeyboard(coarse || narrow || expoMode);
-  }, [expoMode]);
+  }, [expoMode, tutorial]);
 
   // Auto-focus + callsign fill when selecting an aircraft
   useEffect(() => {
@@ -266,7 +273,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           : 'border-red-500 text-red-300';
 
   return (
-    <div className="flex flex-col lg:h-full w-full lg:w-80 xl:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 text-green-400 font-mono shadow-2xl z-20 overflow-hidden transition-all duration-300">
+    <div
+      data-tutorial-panel={tutorial ? '1' : undefined}
+      className={`flex flex-col lg:h-full w-full lg:w-80 xl:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 text-green-400 font-mono shadow-2xl z-20 overflow-hidden transition-all duration-300 ${
+        tutorial ? 'max-h-[48dvh] landscape:max-h-none overflow-y-auto' : ''
+      }`}
+    >
 
       {/* 1. TOP BAR: Status & Score */}
       <div className="flex justify-between items-center p-2 border-b border-gray-800 bg-gray-900 shrink-0">
