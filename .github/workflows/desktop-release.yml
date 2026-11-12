@@ -81,6 +81,7 @@ jobs:
       # launch into Application Support (outside CodeResources). Local/dev can
       # still use `npm run fetch-desktop-models` for an offline bundle.
       - name: Guard sealed resources (no large model binaries)
+        shell: bash
         run: |
           set -euo pipefail
           test -f src-tauri/resources/models/README.md
