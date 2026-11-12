@@ -1,14 +1,18 @@
-# Bundled desktop models
+# Desktop models
 
-Fetched at CI / locally by:
+Whisper ggml weights are **not** sealed inside the macOS `.app` (deep codesign of
+hundreds of MB hung aarch64 CI). Signed builds download them on first launch into
+the app data directory (`~/Library/Application Support/…/models` on Mac).
+
+For local/dev offline bundles:
 
 ```bash
 npm run fetch-desktop-models
 ```
 
-Contents (not committed — large binaries):
+That writes under `src-tauri/resources/models/` (gitignored binaries):
 
-- `whisper/` — ggml Whisper models (MIT, ggerganov/whisper.cpp)
-- `kokoro/` — Kokoro-82M ONNX q8 + selected voices (Apache-2.0)
+- `whisper/` — ggml large-v3-turbo / small.en / base.en (MIT)
+- `kokoro/` — optional ONNX copies (desktop TTS still uses the webview Kokoro path)
 
-See `/DESKTOP.md` for licenses and signing notes.
+CI refuses to ship `*.bin` / `*.onnx` under `resources/` so codesign stays fast.

@@ -85,10 +85,7 @@ async function download(url, out, expectSha) {
 async function main() {
   mkdirSync(WHISPER, { recursive: true });
   mkdirSync(KOKORO, { recursive: true });
-  writeFileSync(
-    join(OUT, 'README.md'),
-    '# Bundled models\n\nFetched by `npm run fetch-desktop-models`. Do not commit large binaries.\n',
-  );
+  // Do not overwrite the committed README (documents first-launch vs local bundle).
 
   for (const f of WHISPER_FILES) {
     await download(f.url, join(WHISPER, f.name), f.sha256 || undefined);

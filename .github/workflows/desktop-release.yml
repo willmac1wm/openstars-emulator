@@ -32,8 +32,7 @@ jobs:
   build:
     strategy:
       fail-fast: false
-      # Serialize matrix jobs: deep codesign of ~900MB model resources + Apple
-      # notarization can hang or starve when aarch64 and x64 run together.
+      # Serialize Mac notarization slots; models are no longer sealed in the .app.
       max-parallel: 1
       matrix:
         include:
@@ -76,12 +75,22 @@ jobs:
       - name: npm ci
         run: npm ci
 
-      - name: Fetch desktop models (HF + checksum files)
-        run: npm run fetch-desktop-models
-        env:
-          WHISPER_TURBO_Q5_SHA256: ${{ secrets.WHISPER_TURBO_Q5_SHA256 }}
-          WHISPER_SMALL_Q5_SHA256: ${{ secrets.WHISPER_SMALL_Q5_SHA256 }}
-          WHISPER_BASE_Q5_SHA256: ${{ secrets.WHISPER_BASE_Q5_SHA256 }}
+      # Do NOT fetch Whisper/Kokoro binaries into src-tauri/resources before the
+      # Tauri build. Deep codesign of ~900MB model resources hung aarch64 Mac
+      # jobs for 3+ hours. The sealed .app downloads Whisper weights on first
+      # launch into Application Support (outside CodeResources). Local/dev can
+      # still use `npm run fetch-desktop-models` for an offline bundle.
+      - name: Guard sealed resources (no large model binaries)
+        run: |
+          set -euo pipefail
+          test -f src-tauri/resources/models/README.md
+          test -f src-tauri/resources/LICENSE-THIRD-PARTY.md
+          if find src-tauri/resources -type f \( -name '*.bin' -o -name '*.onnx' -o -name '*.gguf' \) 2>/dev/null | grep -q .; then
+            echo "::error::Large model binaries must not ship inside the sealed .app (codesign hang). Move them out of src-tauri/resources."
+            find src-tauri/resources -type f \( -name '*.bin' -o -name '*.onnx' -o -name '*.gguf' \) -exec ls -lh {} \;
+            exit 1
+          fi
+          echo "Sealed resources OK (README + licenses only; Whisper downloads on first launch)."
 
       - name: Import Apple certificate (macOS)
         if: runner.os == 'macOS'
@@ -156,11 +165,11 @@ jobs:
       # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
       # Certificate already imported into build.keychain — do NOT also pass
       # APPLE_CERTIFICATE into tauri-action (double-import has hung ~2h builds).
-      # Deep codesign of bundled Whisper/Kokoro resources can exceed 60–90m on
-      # aarch64; x64 finished fine under 90m. Give Mac signed builds 3 hours.
+      # Large Whisper models are excluded from the sealed .app (first-launch
+      # download), so Mac codesign should finish well under an hour.
       - name: Build Tauri (macOS — Developer ID + notarize)
         if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
-        timeout-minutes: 180
+        timeout-minutes: 90
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -179,6 +188,7 @@ jobs:
             - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
             - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
+            - Whisper weights download on **first launch** into app data (kept out of the sealed `.app` so Apple codesign finishes)
             - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
             - Publisher: OpenSTARS · no PII · no analytics
           releaseDraft: false
@@ -219,6 +229,7 @@ jobs:
             - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
             - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
+            - Whisper weights download on **first launch** into app data (kept out of the sealed `.app` so Apple codesign finishes)
             - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
             - Publisher: OpenSTARS · no PII · no analytics
           releaseDraft: false
