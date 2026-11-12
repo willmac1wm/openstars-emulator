@@ -32,6 +32,9 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      # Serialize matrix jobs: deep codesign of ~900MB model resources + Apple
+      # notarization can hang or starve when aarch64 and x64 run together.
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest
@@ -153,9 +156,11 @@ jobs:
       # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
       # Certificate already imported into build.keychain — do NOT also pass
       # APPLE_CERTIFICATE into tauri-action (double-import has hung ~2h builds).
+      # Deep codesign of bundled Whisper/Kokoro resources can exceed 60–90m on
+      # aarch64; x64 finished fine under 90m. Give Mac signed builds 3 hours.
       - name: Build Tauri (macOS — Developer ID + notarize)
         if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
-        timeout-minutes: 90
+        timeout-minutes: 180
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
