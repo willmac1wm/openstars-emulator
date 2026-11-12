@@ -149,20 +149,42 @@ jobs:
             echo "Using ad-hoc macOS signature (no notarization) — missing one or more Apple secrets."
           fi
 
-      - name: Build Tauri
+      # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
+      - name: Build Tauri (macOS — Developer ID + notarize)
+        if: runner.os == 'macOS'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Pass Apple signing + notarization into tauri-action for BOTH Mac jobs.
-          # (Also mirrored via GITHUB_ENV from the configure step when secrets exist.)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ env.APPLE_ID }}
           APPLE_PASSWORD: ${{ env.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Offline OpenSTARS for expos (Mac + Windows).
+
+            - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
+            - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
+            - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
+            - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
+            - Publisher: OpenSTARS · no PII · no analytics
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri (Windows — unsigned)
+        if: runner.os == 'Windows'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
