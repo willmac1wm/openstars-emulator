@@ -20,6 +20,11 @@ export function pxToNm(px: number): number {
   return px / NM_TO_PX;
 }
 
+/** Pixel radius for a J-ring / separation circle at the given NM (same scale as scope range rings). */
+export function separationRingRadiusPx(nm: number = 3): number {
+  return nmToPx(nm);
+}
+
 export function distNm(ax: number, ay: number, bx: number, by: number): number {
   return pxToNm(Math.hypot(ax - bx, ay - by));
 }

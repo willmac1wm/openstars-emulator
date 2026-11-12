@@ -11,8 +11,8 @@ import {
   COLOR_WARNING,
   COLOR_ALERT,
   CENTER,
-  NM_3_PX
 } from '../constants';
+import { nmToPx, separationRingRadiusPx } from '../sim/geometry';
 import DataBlock from './DataBlock';
 
 interface RadarScopeProps {
@@ -20,10 +20,21 @@ interface RadarScopeProps {
   onSelectAircraft: (id: string) => void;
   scanAngle: number; // For the sweeping line effect
   showPrimaryData: boolean; // Global data block toggle state
+  /** When true, draw a 3 NM J-ring around every target. */
+  showJRings?: boolean;
   highlightGateId?: string | null;
 }
 
-const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, scanAngle, showPrimaryData, highlightGateId = null }) => {
+const JRING_R_PX = separationRingRadiusPx(3);
+
+const RadarScope: React.FC<RadarScopeProps> = ({
+  aircraft,
+  onSelectAircraft,
+  scanAngle,
+  showPrimaryData,
+  showJRings = false,
+  highlightGateId = null,
+}) => {
   
   // Render Gates (Exit Lines)
   const gateLines = useMemo(() => {
@@ -202,10 +213,10 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
       className="w-full h-full select-none bg-black block"
       preserveAspectRatio="xMidYMid meet"
     >
-      {/* Background Grid / Range Rings */}
-      <circle cx={cx} cy={cy} r={100} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
-      <circle cx={cx} cy={cy} r={200} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
-      <circle cx={cx} cy={cy} r={300} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
+      {/* Background Grid / Range Rings (10 / 20 / 30 NM — same NM→px as J-rings) */}
+      <circle cx={cx} cy={cy} r={nmToPx(10)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
+      <circle cx={cx} cy={cy} r={nmToPx(20)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
+      <circle cx={cx} cy={cy} r={nmToPx(30)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
       
       {compassTicks}
 
@@ -266,15 +277,28 @@ const RadarScope: React.FC<RadarScopeProps> = ({ aircraft, onSelectAircraft, sca
               />
             ))}
 
-            {/* 3NM Separation Ring - Only for Alerted Aircraft */}
-            {(ac.alertLevel === AlertLevel.WARNING || ac.alertLevel === AlertLevel.CRITICAL) && (
-              <circle 
-                  r={NM_3_PX} // 3NM Ring
-                  fill="none"
-                  stroke={symbolColor}
-                  strokeWidth="1"
-                  strokeDasharray={ac.alertLevel === AlertLevel.WARNING ? "4 4" : "0"}
-                  opacity="0.8"
+            {/* 3 NM J-ring (toggle) or conflict separation cue */}
+            {(showJRings
+              || ac.alertLevel === AlertLevel.WARNING
+              || ac.alertLevel === AlertLevel.CRITICAL) && (
+              <circle
+                data-testid={showJRings ? 'jring-3nm' : 'sep-ring-alert'}
+                r={JRING_R_PX}
+                fill="none"
+                stroke={
+                  ac.alertLevel === AlertLevel.CRITICAL || ac.alertLevel === AlertLevel.WARNING
+                    ? symbolColor
+                    : '#3d5c4a'
+                }
+                strokeWidth={ac.alertLevel === AlertLevel.CRITICAL ? 1.25 : 1}
+                strokeDasharray={
+                  !showJRings && ac.alertLevel === AlertLevel.WARNING ? '4 4' : undefined
+                }
+                opacity={
+                  ac.alertLevel === AlertLevel.CRITICAL || ac.alertLevel === AlertLevel.WARNING
+                    ? 0.85
+                    : 0.45
+                }
               />
             )}
 
