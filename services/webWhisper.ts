@@ -28,7 +28,10 @@ export const WHISPER_APPROX_BYTES = 45_000_000;
 const LOAD_TIMEOUT_MS = 120_000;
 const TRANSCRIBE_BUDGET_MS = 8_000;
 
-type AsrPipeline = (audio: Float32Array | { array: Float32Array; sampling_rate: number }, opts?: Record<string, unknown>) => Promise<{ text?: string } | Array<{ text?: string }>>;
+type AsrPipeline = (
+  audio: Float32Array | string,
+  opts?: Record<string, unknown>,
+) => Promise<{ text?: string } | Array<{ text?: string }>>;
 
 let pipeline: AsrPipeline | null = null;
 let loadPromise: Promise<boolean> | null = null;
@@ -185,17 +188,14 @@ export async function stopWebWhisperAndTranscribe(callsigns: string[]): Promise<
   const prompt = buildAtcInitialPrompt(callsigns);
   const t0 = performance.now();
   try {
+    // transformers.js WhisperFeatureExtractor expects a raw Float32Array @ 16 kHz.
+    // tiny.en is English-only — do not pass language/task (rejected by generate()).
     const result = await withTimeout(
-      pipeline(
-        { array: pcm, sampling_rate: 16_000 },
-        {
-          language: 'english',
-          task: 'transcribe',
-          return_timestamps: false,
-          // Bias decoding toward ATC phraseology + live callsigns (no audio leaves device).
-          initial_prompt: prompt,
-        },
-      ),
+      pipeline(pcm, {
+        return_timestamps: false,
+        // Bias decoding toward ATC phraseology + live callsigns (no audio leaves device).
+        initial_prompt: prompt,
+      }),
       TRANSCRIBE_BUDGET_MS,
       'Whisper transcribe',
     );
