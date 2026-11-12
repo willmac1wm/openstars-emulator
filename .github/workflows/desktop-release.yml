@@ -1,18 +1,16 @@
 # Build OpenSTARS desktop (Tauri v2) for macOS + Windows and publish to GitHub Releases.
-# Optional signing: set secrets below (never commit values).
+# Signing secrets live in GitHub Actions — never commit values.
 #
-# Apple (optional notarization / Developer ID):
+# Apple (Developer ID sign + notarize + staple) — both Mac matrix jobs:
 #   APPLE_CERTIFICATE          - base64 .p12
 #   APPLE_CERTIFICATE_PASSWORD
-#   APPLE_SIGNING_IDENTITY     - e.g. "Developer ID Application: …"
-#   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+#   APPLE_SIGNING_IDENTITY     - e.g. "Developer ID Application: WILLIAM ERNEST MACOMBER (Y6P8GK8M2N)"
+#   APPLE_ID / APPLE_PASSWORD (app-specific) / APPLE_TEAM_ID
 #   Team ID (public): Y6P8GK8M2N
 #
-# Windows (optional Authenticode):
+# Windows (optional Authenticode — leave unset to ship unsigned MSI/EXE):
 #   WINDOWS_CERTIFICATE        - base64 .pfx
 #   WINDOWS_CERTIFICATE_PASSWORD
-#
-# If secrets are absent, builds are unsigned (Gatekeeper / SmartScreen warnings expected).
 
 name: Desktop Release
 
@@ -23,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. desktop-v0.1.0)'
+        description: 'Release tag (e.g. desktop-v0.1.1)'
         required: true
-        default: 'desktop-v0.1.0'
+        default: 'desktop-v0.1.1'
 
 permissions:
   contents: write
@@ -39,14 +37,17 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_target: aarch64-apple-darwin
+            arch_label: aarch64
           # Cross-compile Intel from Apple Silicon runners — macos-13 is retired
           # and was leaving x86_64 jobs queued indefinitely.
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust_target: x86_64-apple-darwin
+            arch_label: x64
           - platform: windows-latest
             args: ''
             rust_target: ''
+            arch_label: windows
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -79,14 +80,14 @@ jobs:
           WHISPER_SMALL_Q5_SHA256: ${{ secrets.WHISPER_SMALL_Q5_SHA256 }}
           WHISPER_BASE_Q5_SHA256: ${{ secrets.WHISPER_BASE_Q5_SHA256 }}
 
-      - name: Import Apple certificate (optional)
+      - name: Import Apple certificate (macOS)
         if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "No APPLE_CERTIFICATE secret — building unsigned (Gatekeeper will warn)."
+            echo "No APPLE_CERTIFICATE secret — Mac build will be ad-hoc / unsigned."
             exit 0
           fi
           echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
@@ -95,7 +96,9 @@ jobs:
           security unlock-keychain -p actions build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          security list-keychains -d user -s build.keychain
           rm -f /tmp/cert.p12
+          echo "Apple certificate imported into build.keychain (value not logged)."
 
       - name: Import Windows certificate (optional)
         if: runner.os == 'Windows'
@@ -121,18 +124,62 @@ jobs:
           APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ] && [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_SECRET" >> "$GITHUB_ENV"
-            echo "APPLE_ID=$APPLE_ID_SECRET" >> "$GITHUB_ENV"
-            echo "APPLE_PASSWORD=$APPLE_PASSWORD_SECRET" >> "$GITHUB_ENV"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET" >> "$GITHUB_ENV"
-            echo "Using Developer ID + notarization secrets."
+          # Heredoc form keeps spaces/special chars intact (Developer ID subject, app-specific password).
+          # Never echo secret values to the log.
+          if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ] && [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_PASSWORD_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
+            {
+              echo "APPLE_SIGNING_IDENTITY<<EOF"
+              echo "$APPLE_SIGNING_IDENTITY_SECRET"
+              echo "EOF"
+              echo "APPLE_ID<<EOF"
+              echo "$APPLE_ID_SECRET"
+              echo "EOF"
+              echo "APPLE_PASSWORD<<EOF"
+              echo "$APPLE_PASSWORD_SECRET"
+              echo "EOF"
+              echo "APPLE_TEAM_ID<<EOF"
+              echo "$APPLE_TEAM_ID_SECRET"
+              echo "EOF"
+              echo "MAC_SIGNED=1"
+            } >> "$GITHUB_ENV"
+            echo "Using Developer ID + notarization secrets for ${{ matrix.arch_label }} (values not logged)."
           else
             echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-            echo "Using ad-hoc macOS signature (no notarization)."
+            echo "MAC_SIGNED=0" >> "$GITHUB_ENV"
+            echo "Using ad-hoc macOS signature (no notarization) — missing one or more Apple secrets."
           fi
 
-      - name: Build Tauri
+      # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
+      - name: Build Tauri (macOS — Developer ID + notarize)
+        if: runner.os == 'macOS'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ env.APPLE_ID }}
+          APPLE_PASSWORD: ${{ env.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Offline OpenSTARS for expos (Mac + Windows).
+
+            - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
+            - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
+            - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
+            - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
+            - Publisher: OpenSTARS · no PII · no analytics
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri (Windows — unsigned)
+        if: runner.os == 'Windows'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -142,12 +189,80 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
-            Offline OpenSTARS for expos (Mac + Windows) — **pre-release, unsigned**.
+            Offline OpenSTARS for expos (Mac + Windows).
+
+            - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
+            - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
             - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
             - Publisher: OpenSTARS · no PII · no analytics
-
-            **Signing:** unsigned — expect Gatekeeper/SmartScreen warnings until Apple/Windows signing secrets are added.
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
+
+      - name: Verify macOS Developer ID signature + notarization staple
+        if: runner.os == 'macOS'
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+          ARCH_LABEL: ${{ matrix.arch_label }}
+        run: |
+          set -euo pipefail
+          APP="src-tauri/target/${RUST_TARGET}/release/bundle/macos/OpenSTARS.app"
+          DMG=$(ls -1 src-tauri/target/"${RUST_TARGET}"/release/bundle/dmg/*.dmg 2>/dev/null | head -n 1 || true)
+
+          echo "::group::Locate artifacts (${ARCH_LABEL})"
+          echo "APP path: $APP"
+          echo "DMG path: ${DMG:-"(none found)"}"
+          ls -la "src-tauri/target/${RUST_TARGET}/release/bundle/macos/" || true
+          ls -la "src-tauri/target/${RUST_TARGET}/release/bundle/dmg/" || true
+          echo "::endgroup::"
+
+          if [ ! -d "$APP" ]; then
+            echo "::error::OpenSTARS.app missing at $APP"
+            exit 1
+          fi
+
+          echo "::group::codesign --verify --deep --strict"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 | sed -E 's/(Authority=|TeamIdentifier=|Identifier=).*/\1[present]/' || true
+          # Show Authority lines (public certificate subject — not a secret)
+          codesign -dv --verbose=4 "$APP" 2>&1 | grep -E 'Authority=|TeamIdentifier=|Signature size|sealed' || true
+          echo "::endgroup::"
+
+          if [ "${MAC_SIGNED:-0}" = "1" ]; then
+            echo "::group::Require Developer ID Application (not ad-hoc)"
+            if codesign -dv --verbose=4 "$APP" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+              echo "Developer ID Application authority present."
+            else
+              echo "::error::Expected Developer ID Application signature; got:"
+              codesign -dv --verbose=4 "$APP" 2>&1 | grep -E 'Authority=|Signature=' || true
+              exit 1
+            fi
+            echo "::endgroup::"
+
+            echo "::group::spctl -a -vvv -t install (app)"
+            spctl -a -vvv -t install "$APP"
+            echo "::endgroup::"
+
+            echo "::group::xcrun stapler validate (app)"
+            xcrun stapler validate "$APP"
+            echo "::endgroup::"
+
+            if [ -n "${DMG:-}" ] && [ -f "$DMG" ]; then
+              echo "::group::spctl -a -vvv -t install (dmg)"
+              spctl -a -vvv -t install "$DMG" || echo "::warning::spctl on DMG returned non-zero (app staple is authoritative for Gatekeeper)"
+              echo "::endgroup::"
+
+              echo "::group::xcrun stapler validate (dmg)"
+              if xcrun stapler validate "$DMG"; then
+                echo "DMG staple OK"
+              else
+                echo "::warning::DMG stapler validate failed — ensuring app is stapled is enough for many Gatekeeper paths; check notarization log above."
+              fi
+              echo "::endgroup::"
+            fi
+          else
+            echo "::warning::MAC_SIGNED=0 — skipped Developer ID / notarization assertions (ad-hoc build)."
+          fi
+
+          echo "Mac ${ARCH_LABEL} signing verification finished."

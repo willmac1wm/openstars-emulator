@@ -47,9 +47,10 @@ Workflow: `.github/workflows/desktop-release.yml`
 
 - Triggers on `desktop-v*` tags or `workflow_dispatch`.
 - Builds macOS (arm64 + x64) and Windows; publishes GitHub Release assets.
-- Web menu **Download** (`components/DesktopDownload.tsx`) points at tag `desktop-v0.1.0`.
+- Web menu **Download** (`components/DesktopDownload.tsx`) points at tag `desktop-v0.1.1`.
+- Mac jobs (aarch64 + x64) pass Apple secrets into `tauri-action`, then verify with `codesign --verify --deep --strict`, `spctl -a -vvv -t install`, and `xcrun stapler validate` (logged; secret values never printed).
 
-### Signing (optional — secrets only, never commit values)
+### Signing (secrets only — never commit values)
 
 **Apple Team ID (public):** `Y6P8GK8M2N`
 
@@ -57,12 +58,12 @@ Workflow: `.github/workflows/desktop-release.yml`
 | --- | --- |
 | `APPLE_CERTIFICATE` | base64 `.p12` |
 | `APPLE_CERTIFICATE_PASSWORD` | p12 password |
-| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: …` |
-| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | notarization |
-| `WINDOWS_CERTIFICATE` | base64 `.pfx` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: WILLIAM ERNEST MACOMBER (Y6P8GK8M2N)` |
+| `APPLE_ID` / `APPLE_PASSWORD` (app-specific) / `APPLE_TEAM_ID` | notarization |
+| `WINDOWS_CERTIFICATE` | base64 `.pfx` (optional; Windows stays unsigned without it) |
 | `WINDOWS_CERTIFICATE_PASSWORD` | pfx password |
 
-If secrets are absent, CI still ships **unsigned** builds. Expect Gatekeeper / SmartScreen warnings until Will adds signing material.
+With Apple secrets present, Mac DMGs are Developer ID signed, notarized, and stapled. Windows remains unsigned until Authenticode secrets are added.
 
 ## Latency expectations
 
@@ -76,7 +77,7 @@ Exact numbers depend on machine; Desktop Settings shows the startup Whisper benc
 
 ## Will actions
 
-1. Merge this PR.
-2. Tag `desktop-v0.1.0` (or run the Desktop Release workflow) after models fetch succeeds in CI.
-3. Add Apple/Windows signing secrets when ready for Gatekeeper-clean / SmartScreen-clean installers.
+1. Keep Apple signing secrets in GitHub Actions (already set for Developer ID + notarization).
+2. Tag `desktop-v0.1.1` (or run Desktop Release workflow_dispatch) to publish signed Mac DMGs.
+3. Add Windows Authenticode secrets when ready for SmartScreen-clean installers.
 4. Confirm expo machines meet minimums (macOS 11+, Windows 10+ with WebView2).

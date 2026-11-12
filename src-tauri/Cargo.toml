@@ -1,6 +1,6 @@
 [package]
 name = "openstars-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "OpenSTARS desktop (offline ATC radar game)"
 authors = ["OpenSTARS"]
 edition = "2021"
