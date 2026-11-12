@@ -114,8 +114,8 @@ jobs:
           $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP/cert.pfx", $bytes)
 
-      # Empty APPLE_* env vars make tauri attempt notarization with Team ID "".
-      # Ad-hoc "-" signs without notarizing when Apple secrets are absent.
+      # Flag only — pass Apple secrets DIRECTLY into tauri-action (do not remap via
+      # ${{ env.* }}, which can overwrite GITHUB_ENV with empty and hang notarization).
       - name: Configure macOS signing / notarization env
         if: runner.os == 'macOS'
         env:
@@ -124,45 +124,47 @@ jobs:
           APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Heredoc form keeps spaces/special chars intact (Developer ID subject, app-specific password).
-          # Never echo secret values to the log.
           if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ] && [ -n "$APPLE_ID_SECRET" ] && [ -n "$APPLE_PASSWORD_SECRET" ] && [ -n "$APPLE_TEAM_ID_SECRET" ]; then
-            {
-              echo "APPLE_SIGNING_IDENTITY<<EOF"
-              echo "$APPLE_SIGNING_IDENTITY_SECRET"
-              echo "EOF"
-              echo "APPLE_ID<<EOF"
-              echo "$APPLE_ID_SECRET"
-              echo "EOF"
-              echo "APPLE_PASSWORD<<EOF"
-              echo "$APPLE_PASSWORD_SECRET"
-              echo "EOF"
-              echo "APPLE_TEAM_ID<<EOF"
-              echo "$APPLE_TEAM_ID_SECRET"
-              echo "EOF"
-              echo "MAC_SIGNED=1"
-            } >> "$GITHUB_ENV"
-            echo "Using Developer ID + notarization secrets for ${{ matrix.arch_label }} (values not logged)."
+            echo "MAC_SIGNED=1" >> "$GITHUB_ENV"
+            echo "Using Developer ID + notarization for ${{ matrix.arch_label }} (values not logged)."
+            echo "Codesigning identities in keychain:"
+            security find-identity -v -p codesigning || true
           else
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
             echo "MAC_SIGNED=0" >> "$GITHUB_ENV"
             echo "Using ad-hoc macOS signature (no notarization) — missing one or more Apple secrets."
           fi
 
+      # Validate Apple ID + app-specific password before the long build (fails fast).
+      - name: Preflight notarytool credentials
+        if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          # store-credentials validates the app-specific password without printing it.
+          xcrun notarytool store-credentials "openstars-notary" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_PASSWORD"
+          echo "notarytool credentials stored OK (profile=openstars-notary)."
+
       # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
+      # Certificate already imported into build.keychain — do NOT also pass
+      # APPLE_CERTIFICATE into tauri-action (double-import has hung ~2h builds).
       - name: Build Tauri (macOS — Developer ID + notarize)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
+        timeout-minutes: 90
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ env.APPLE_ID }}
-          APPLE_PASSWORD: ${{ env.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
@@ -174,6 +176,24 @@ jobs:
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
             - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
             - Publisher: OpenSTARS · no PII · no analytics
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri (macOS — ad-hoc fallback)
+        if: runner.os == 'macOS' && env.MAC_SIGNED != '1'
+        timeout-minutes: 60
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: '-'
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'OpenSTARS Desktop ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Offline OpenSTARS for expos (Mac + Windows) — Mac ad-hoc (Apple secrets incomplete).
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
