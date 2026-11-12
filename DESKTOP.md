@@ -32,7 +32,13 @@ Requires Rust stable, platform WebView deps, and network access to Hugging Face 
 
 ### Why models are outside the sealed `.app`
 
-Apple deep codesign of ~900MB Whisper/Kokoro resources hung aarch64 release jobs for hours. Release builds therefore ship a slim `.app`; Whisper ggml files download once into app data. Pre-seed for fully offline expo machines by copying `whisper/*.bin` into the app data `models/whisper/` folder before first launch.
+Apple deep codesign of large Whisper/Kokoro binaries hung aarch64 release jobs for hours. Release builds ship a slim `.app`:
+
+- Whisper ggml downloads once into app data on first launch
+- Desktop Vite skips `public/voice` ONNX (no sealed web weights)
+- CI keeps the signing keychain unlocked for 6h and re-unlocks immediately before codesign (a locked keychain made `codesign` hang ~78m with no UI prompt)
+
+Pre-seed offline expo machines by copying `whisper/*.bin` into the app data `models/whisper/` folder before first launch; allow one online warm for Kokoro if needed.
 
 ## Speech recognition
 

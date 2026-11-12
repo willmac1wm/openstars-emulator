@@ -106,6 +106,10 @@ jobs:
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
+          # Rust+bundle can exceed the default ~5m keychain lock; codesign then
+          # hangs for hours waiting for a GUI password prompt that never appears
+          # (aarch64 desktop-v0.1.2: hung 78m on Signing openstars-desktop).
+          security set-keychain-settings -t 21600 -u build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
           security list-keychains -d user -s build.keychain
@@ -162,14 +166,24 @@ jobs:
             --password "$APPLE_PASSWORD"
           echo "notarytool credentials stored OK (profile=openstars-notary)."
 
+      # Re-unlock immediately before codesign — cargo release can outlast the
+      # initial unlock even with a raised lock timeout.
+      - name: Unlock keychain before codesign
+        if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
+        run: |
+          set -euo pipefail
+          security unlock-keychain -p actions build.keychain
+          security set-keychain-settings -t 21600 -u build.keychain
+          security find-identity -v -p codesigning || true
+          echo "Keychain unlocked for codesign (password not logged)."
+
       # Apple signing material is Mac-only — never inject APPLE_* into Windows jobs.
       # Certificate already imported into build.keychain — do NOT also pass
       # APPLE_CERTIFICATE into tauri-action (double-import has hung ~2h builds).
-      # Large Whisper models are excluded from the sealed .app (first-launch
-      # download), so Mac codesign should finish well under an hour.
+      # Large model binaries stay outside the sealed .app; keychain stays unlocked.
       - name: Build Tauri (macOS — Developer ID + notarize)
         if: runner.os == 'macOS' && env.MAC_SIGNED == '1'
-        timeout-minutes: 90
+        timeout-minutes: 60
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -188,8 +202,8 @@ jobs:
             - **macOS:** Developer ID signed, notarized, and stapled (Apple Silicon + Intel DMGs)
             - **Windows:** unsigned MSI/EXE (SmartScreen may warn until Authenticode secrets are added)
             - Native Whisper STT (large-v3-turbo quantized with small/base fallback)
-            - Whisper weights download on **first launch** into app data (kept out of the sealed `.app` so Apple codesign finishes)
-            - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer)
+            - Whisper weights download on **first launch** into app data (kept out of the sealed `.app`)
+            - Kokoro pilot voices with ATC G2P (no eSpeak NG in the installer; ONNX may warm from cache/network)
             - Publisher: OpenSTARS · no PII · no analytics
           releaseDraft: false
           prerelease: true

@@ -114,7 +114,7 @@ fn download_file(url: &str, dest: &Path) -> DesktopResult<()> {
         fs::create_dir_all(parent)?;
     }
     let partial = dest.with_extension("partial");
-    let mut resp = ureq::get(url)
+    let resp = ureq::get(url)
         .set("User-Agent", "OpenSTARS-desktop/0.1")
         .call()
         .map_err(|e| DesktopError::msg(format!("download {url}: {e}")))?;
