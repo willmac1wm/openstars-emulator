@@ -67,4 +67,7 @@ export default defineConfig({
     // Tauri expects a relative base for asset:// loading.
     ...(isDesktop ? { target: ['es2021', 'chrome100', 'safari14'] } : {}),
   },
+  // Desktop: do not copy public/voice ONNX into the sealed .app (codesign hang).
+  // Kokoro/Whisper web assets warm from network/cache; native Whisper uses app data.
+  ...(isDesktop ? { publicDir: false as const } : {}),
 });
