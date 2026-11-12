@@ -71,6 +71,22 @@ export function pickMacDmgAlternate<T extends ReleaseAssetLike>(assets: T[], pri
   return pickMacDmgForArch(assets, primaryArch === 'arm64' ? 'x64' : 'arm64');
 }
 
+/**
+ * Prefer the current release's DMG for `arch`; if missing, use a prior release's assets
+ * (e.g. Apple Silicon → desktop-v0.1.0 aarch64 until a signed arm64 build lands on latest).
+ */
+export function resolveMacDmgWithFallback<T extends ReleaseAssetLike>(
+  primaryAssets: T[],
+  fallbackAssets: T[],
+  arch: MacArch,
+): { asset: T; fromFallback: boolean } | null {
+  const primary = pickMacDmgForArch(primaryAssets, arch);
+  if (primary) return { asset: primary, fromFallback: false };
+  const fallback = pickMacDmgForArch(fallbackAssets, arch);
+  if (fallback) return { asset: fallback, fromFallback: true };
+  return null;
+}
+
 export function macArchSecondaryLabel(primaryArch: MacArch): string {
   return primaryArch === 'arm64' ? 'On an Intel Mac? Download here' : 'On Apple Silicon? Download here';
 }

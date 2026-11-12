@@ -6,6 +6,7 @@ import {
   pickMacDmgAlternate,
   pickMacDmgForArch,
   resolveMacArch,
+  resolveMacDmgWithFallback,
 } from './macArch';
 
 const assets = [
@@ -92,5 +93,33 @@ describe('pickMacDmgForArch / alternate', () => {
   it('labels the secondary link for the other chip', () => {
     expect(macArchSecondaryLabel('arm64')).toBe('On an Intel Mac? Download here');
     expect(macArchSecondaryLabel('x64')).toBe('On Apple Silicon? Download here');
+  });
+});
+
+describe('resolveMacDmgWithFallback', () => {
+  const primaryOnlyX64 = [
+    {
+      name: 'OpenSTARS_0.1.1_x64.dmg',
+      size: 200,
+      browser_download_url: 'https://example.com/v011-x64.dmg',
+    },
+  ];
+  const fallbackBoth = assets;
+
+  it('uses primary when the arch DMG exists', () => {
+    const hit = resolveMacDmgWithFallback(primaryOnlyX64, fallbackBoth, 'x64');
+    expect(hit?.fromFallback).toBe(false);
+    expect(hit?.asset.name).toBe('OpenSTARS_0.1.1_x64.dmg');
+  });
+
+  it('falls back when primary is missing the arch (Apple Silicon gap)', () => {
+    const hit = resolveMacDmgWithFallback(primaryOnlyX64, fallbackBoth, 'arm64');
+    expect(hit?.fromFallback).toBe(true);
+    expect(hit?.asset.name).toBe('OpenSTARS_0.1.0_aarch64.dmg');
+    expect(hit?.asset.browser_download_url).toContain('aarch64.dmg');
+  });
+
+  it('returns null when neither release has the arch', () => {
+    expect(resolveMacDmgWithFallback(primaryOnlyX64, primaryOnlyX64, 'arm64')).toBeNull();
   });
 });
