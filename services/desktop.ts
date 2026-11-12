@@ -50,8 +50,8 @@ export async function invokeDesktop<T>(cmd: string, args?: Record<string, unknow
 }
 
 export const DESKTOP_RELEASE_REPO = 'willmac1wm/openstars-emulator';
-export const DESKTOP_RELEASE_TAG = 'desktop-v0.1.1';
-/** Used when the current tag is missing an arch (e.g. Apple Silicon DMG until signed arm64 ships). */
+export const DESKTOP_RELEASE_TAG = 'desktop-v0.1.3';
+/** Used when the current tag is missing an arch (kept as safety net for partial releases). */
 export const DESKTOP_RELEASE_FALLBACK_TAG = 'desktop-v0.1.0';
 
 export function desktopReleaseApiUrlForTag(tag: string): string {

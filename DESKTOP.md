@@ -57,7 +57,7 @@ Workflow: `.github/workflows/desktop-release.yml`
 
 - Triggers on `desktop-v*` tags or `workflow_dispatch`.
 - Builds macOS (arm64 + x64) and Windows; publishes GitHub Release assets.
-- Web menu **Download** (`components/DesktopDownload.tsx`) points at tag `desktop-v0.1.1` (Apple Silicon falls back to `desktop-v0.1.0` aarch64 until a signed arm64 build exists).
+- Web menu **Download** (`components/DesktopDownload.tsx`) points at tag `desktop-v0.1.3` (signed aarch64 + x64; per-arch fallback to `desktop-v0.1.0` if an asset is missing).
 - Mac jobs (aarch64 + x64) pass Apple secrets into `tauri-action`, then verify with `codesign --verify --deep --strict`, `spctl -a -vvv -t install`, and `xcrun stapler validate` (logged; secret values never printed).
 - CI guards against `*.bin` / `*.onnx` under `src-tauri/resources` so sealed codesign stays fast.
 
