@@ -6,9 +6,16 @@ import { Clock, Gauge, Map } from 'lucide-react';
 interface ReferencePanelProps {
   timeScale: number;
   setTimeScale: (scale: number) => void;
+  showJRings?: boolean;
+  onToggleJRings?: () => void;
 }
 
-const ReferencePanel: React.FC<ReferencePanelProps> = ({ timeScale, setTimeScale }) => {
+const ReferencePanel: React.FC<ReferencePanelProps> = ({
+  timeScale,
+  setTimeScale,
+  showJRings = false,
+  onToggleJRings,
+}) => {
   return (
     <div className="w-64 bg-[#0a0a0a] border-l border-gray-800 flex flex-col h-full shrink-0">
       
@@ -31,6 +38,24 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({ timeScale, setTimeScale
                     {s}x
                 </button>
             ))}
+         </div>
+         {onToggleJRings && (
+           <button
+             type="button"
+             data-testid="jring-toggle-panel"
+             aria-pressed={showJRings}
+             onClick={onToggleJRings}
+             className={`mt-3 w-full text-xs py-2 rounded border font-bold transition-all ${
+               showJRings
+                 ? 'bg-green-900/50 border-green-500 text-white'
+                 : 'bg-black border-gray-700 text-gray-500 hover:border-gray-500'
+             }`}
+           >
+             J-Rings 3 NM {showJRings ? 'ON' : 'OFF'}
+           </button>
+         )}
+         <div className="mt-2 text-[10px] text-gray-600 leading-snug">
+           Typed: <span className="text-green-600">JRING</span> / <span className="text-green-600">3NM</span>
          </div>
       </div>
 

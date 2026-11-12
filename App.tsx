@@ -25,6 +25,12 @@ import { generateScenario } from './services/geminiService';
 import { trackEvent, identifyUser } from './services/analytics';
 import { issueControllerCommand } from './services/commandIssue';
 import { ENABLE_VECTOR_TO_FINAL } from './services/features';
+import {
+  getDisplaySettings,
+  parseDisplayCommand,
+  subscribeDisplaySettings,
+  updateDisplaySettings,
+} from './services/displaySettings';
 import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
 import {
   playFailTone,
@@ -87,7 +93,10 @@ const App: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [timeScale, setTimeScale] = useState(DEFAULT_TIME_SCALE);
   const [showPrimaryData, setShowPrimaryData] = useState(true);
+  const [showJRings, setShowJRings] = useState(() => getDisplaySettings().jRings3Nm);
   const [scanAngle, setScanAngle] = useState(0);
+
+  useEffect(() => subscribeDisplaySettings((s) => setShowJRings(s.jRings3Nm)), []);
   
   // UI States for Overlays
   const [isRateOpen, setIsRateOpen] = useState(false);
@@ -415,6 +424,17 @@ const App: React.FC = () => {
     if (prev && prev.cmd === cmd && now - prev.at < 450) return;
     lastIssuedRef.current = { cmd, at: now };
 
+    // Display toggles (JRING / 3NM / RING) — no aircraft callsign.
+    const displayCmd = parseDisplayCommand(cmd);
+    if (displayCmd?.kind === 'jrings') {
+      const next =
+        displayCmd.on !== undefined ? displayCmd.on : !getDisplaySettings().jRings3Nm;
+      updateDisplaySettings({ jRings3Nm: next });
+      addLog(next ? 'J-RINGS 3 NM ON' : 'J-RINGS 3 NM OFF', 'system');
+      setStatusMessage(next ? 'J-RINGS 3 NM ON' : 'J-RINGS 3 NM OFF');
+      return;
+    }
+
     primePilotVoice();
     // State applies synchronously; speakPilot is fire-and-forget (never awaited).
     const result = issueControllerCommand(aircraft, selectedId, cmdRaw, {
@@ -427,6 +447,12 @@ const App: React.FC = () => {
       tutorialActionsRef.current.onCommand?.(cmdRaw);
     }
   };
+
+  const toggleJRings = useCallback(() => {
+    const next = !getDisplaySettings().jRings3Nm;
+    updateDisplaySettings({ jRings3Nm: next });
+    setStatusMessage(next ? 'J-RINGS 3 NM ON' : 'J-RINGS 3 NM OFF');
+  }, []);
 
   const aircraftRef = useRef(aircraft);
   aircraftRef.current = aircraft;
@@ -1031,6 +1057,7 @@ const App: React.FC = () => {
                   onSelectAircraft={handleSelect}
                   scanAngle={scanAngle}
                   showPrimaryData={showPrimaryData}
+                  showJRings={showJRings}
                   highlightGateId={selectedAircraft?.destination ?? null}
                 />
 
@@ -1087,29 +1114,50 @@ const App: React.FC = () => {
                      )}
                 </div>
 
-                <div className="2xl:hidden absolute top-2 right-2 z-30 flex items-start gap-1">
-                     {isRateOpen && (
-                        <div className="flex gap-1 bg-gray-900/50 p-1 rounded border border-gray-800/50 shadow backdrop-blur-sm animate-in slide-in-from-right-2 fade-in duration-200">
-                            {SIM_SPEED_OPTIONS.map(s => (
-                                <button key={s} onClick={() => setTimeScale(s)} className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-all min-w-[24px] ${timeScale === s ? 'bg-green-900/80 border-green-500 text-white' : 'text-gray-500'}`}>
-                                    {s}x
-                                </button>
-                            ))}
-                        </div>
-                     )}
-                     <button 
-                        onClick={() => setIsRateOpen(!isRateOpen)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all flex items-center gap-1 h-[26px] ${isRateOpen ? 'bg-green-900/50 border-green-600 text-white' : 'bg-gray-900/50 border-gray-800/50 text-gray-500'}`}
+                <div className="absolute top-2 right-2 z-30 flex items-start gap-1">
+                     <button
+                        type="button"
+                        data-testid="jring-toggle"
+                        aria-pressed={showJRings}
+                        title="Toggle 3 NM J-rings around each target (typed: JRING)"
+                        onClick={toggleJRings}
+                        className={`text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all h-[26px] ${
+                          showJRings
+                            ? 'bg-green-900/50 border-green-600 text-green-200'
+                            : 'bg-gray-900/50 border-gray-800/50 text-gray-500 hover:text-gray-300'
+                        }`}
                      >
-                        RATE
+                        J-RINGS 3 NM
                      </button>
+                     <div className="2xl:hidden flex items-start gap-1">
+                       {isRateOpen && (
+                          <div className="flex gap-1 bg-gray-900/50 p-1 rounded border border-gray-800/50 shadow backdrop-blur-sm animate-in slide-in-from-right-2 fade-in duration-200">
+                              {SIM_SPEED_OPTIONS.map(s => (
+                                  <button key={s} onClick={() => setTimeScale(s)} className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-all min-w-[24px] ${timeScale === s ? 'bg-green-900/80 border-green-500 text-white' : 'text-gray-500'}`}>
+                                      {s}x
+                                  </button>
+                              ))}
+                          </div>
+                       )}
+                       <button 
+                          onClick={() => setIsRateOpen(!isRateOpen)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all flex items-center gap-1 h-[26px] ${isRateOpen ? 'bg-green-900/50 border-green-600 text-white' : 'bg-gray-900/50 border-gray-800/50 text-gray-500'}`}
+                       >
+                          RATE
+                       </button>
+                     </div>
                 </div>
             </div>
           </div>
 
           {/* RIGHT SIDEBAR: Reference Panel (Visible only on 2XL screens) */}
           <div className="hidden 2xl:block h-full">
-               <ReferencePanel timeScale={timeScale} setTimeScale={setTimeScale} />
+               <ReferencePanel
+                 timeScale={timeScale}
+                 setTimeScale={setTimeScale}
+                 showJRings={showJRings}
+                 onToggleJRings={toggleJRings}
+               />
           </div>
 
       </div>
