@@ -27,7 +27,7 @@ const VoiceBar: React.FC = () => {
         : 'FAST';
 
   return (
-    <div className="flex items-center gap-1 text-[10px] text-gray-400" aria-label="Pilot voice">
+    <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400" aria-label="Pilot voice">
       <button
         type="button"
         aria-pressed={settings.enabled}

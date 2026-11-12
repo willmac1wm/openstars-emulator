@@ -49,14 +49,23 @@ const TutorialOverlay: React.FC<Props> = ({
         ? `Tap the plane labeled ${step.expect.callsign}.`
         : null;
 
+  /**
+   * The overlay wrapper spans the full viewport width at the bottom, over
+   * the right-hand command panel — so it must NOT intercept pointer events
+   * itself. Only the instructor card inside it is interactive; clicks on
+   * the empty wrapper area (e.g. the tap pad's ISSUE CLEARANCE button
+   * underneath) pass through to the panel below. This was the Nov 12 bug:
+   * ISSUE CLEARANCE was unclickable during the tutorial (hit-test "covered")
+   * while the same button worked in Expo.
+   */
   const dockClass = pinTop
-    ? 'fixed inset-x-0 top-0 z-[90] p-2 pointer-events-auto'
-    : 'fixed inset-x-0 bottom-0 z-[90] p-2 md:p-3 pointer-events-auto';
+    ? 'fixed inset-x-0 top-0 z-[90] p-2 pointer-events-none'
+    : 'fixed inset-x-0 bottom-0 z-[90] p-2 md:p-3 pointer-events-none';
 
   if (state.completed) {
     return (
       <div data-testid="tutorial-overlay" className={dockClass}>
-        <div className="mx-auto max-w-3xl rounded-xl border border-green-600/70 bg-black/95 p-3 md:p-4 text-green-100 shadow-[0_0_30px_rgba(20,241,149,0.25)]">
+        <div className="mx-auto max-w-3xl rounded-xl border border-green-600/70 bg-black/95 p-3 md:p-4 text-green-100 shadow-[0_0_30px_rgba(20,241,149,0.25)] pointer-events-auto">
           <div className="font-mono text-sm md:text-base leading-relaxed mb-3">
             {state.skipped
               ? 'Tutorial skipped. You can replay How to play anytime from the menu.'
@@ -99,7 +108,7 @@ const TutorialOverlay: React.FC<Props> = ({
       data-tutorial-dock={pinTop ? 'top' : 'bottom'}
       className={dockClass}
     >
-      <div className="mx-auto max-w-3xl max-h-[36dvh] md:max-h-[42dvh] overflow-y-auto rounded-xl border border-cyan-700/60 bg-black/95 backdrop-blur-sm px-3 py-2 md:p-3 text-cyan-50 shadow-lg space-y-2">
+      <div className="mx-auto max-w-3xl max-h-[36dvh] md:max-h-[42dvh] overflow-y-auto rounded-xl border border-cyan-700/60 bg-black/95 backdrop-blur-sm px-3 py-2 md:p-3 text-cyan-50 shadow-lg space-y-2 pointer-events-auto">
         <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-cyan-400/80 font-mono">
           <span>Instructor</span>
           <span className="flex items-center gap-2">

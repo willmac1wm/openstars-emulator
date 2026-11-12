@@ -8,7 +8,7 @@ export const NM_3_PX = 3 * NM_TO_PX; // 30px
 export const NM_4_PX = 4 * NM_TO_PX; // 40px
 export const UPDATE_INTERVAL = 1000; // Update logic every 1s (simulated radar sweep)
 export const SWEEP_DURATION = 4000; // 4 seconds for a full 360 sweep
-export const DEFAULT_TIME_SCALE = 4.0; // 4.0x speed for snappier pacing
+export const DEFAULT_TIME_SCALE = 1.0; // 1.0x — lesson modes start at real time; Expo sets its own 6x
 export const GATE_RADIUS = 350; // Distance from center to gates
 
 export const SIM_SPEED_OPTIONS = [1, 2, 4, 6, 8, 10];
@@ -48,7 +48,7 @@ export const GATES: Gate[] = [
     { 
         id: 'NOR', label: 'NORTH', 
         startAngle: 20, endAngle: 50, 
-        fixName: 'NORTH', fix: getCoord(35, GATE_RADIUS) 
+        fixName: 'NOR', fix: getCoord(35, GATE_RADIUS) 
     },
     { 
         id: 'EAS', label: 'EAST', 
@@ -58,7 +58,7 @@ export const GATES: Gate[] = [
     { 
         id: 'SOU', label: 'SOUTH', 
         startAngle: 180, endAngle: 210, 
-        fixName: 'SOUTH', fix: getCoord(195, GATE_RADIUS) 
+        fixName: 'SOU', fix: getCoord(195, GATE_RADIUS) 
     },
     { 
         id: 'WES', label: 'WEST', 

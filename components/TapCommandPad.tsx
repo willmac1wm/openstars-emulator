@@ -4,7 +4,9 @@ import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
 import { prewarmReadback } from '../services/pilotVoice';
 import {
   composeTapClearance,
+  DIAL_NUDGE_DEG,
   normalizeHeadingDeg,
+  nudgeHeading,
   snapHeading5,
 } from '../services/tapClearance';
 import { createTapIssueGate } from '../services/tapIssueGate';
@@ -168,6 +170,18 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
   const autoTurn = preview.effectiveTurn;
   const needleDeg = targetHdg ?? currentHdg;
 
+  /**
+   * LEFT/RIGHT nudge the staged heading by DIAL_NUDGE_DEG — exactly like
+   * dragging the dial — starting from the live heading when nothing is
+   * staged yet, so the button always arms ISSUE. (They used to only set a
+   * forced turn direction, which staged nothing on its own.)
+   */
+  const nudge = (direction: 'LEFT' | 'RIGHT') => {
+    const next = nudgeHeading(currentHdg, heading, direction);
+    setHeading(next.heading);
+    setTurnForced(next.turnForced);
+  };
+
   return (
     <div
       className="border border-amber-700/50 bg-amber-950/20 rounded flex flex-col min-h-0 flex-1"
@@ -275,6 +289,8 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
               <button
                 type="button"
                 data-testid="turn-left"
+                aria-label={`Nudge heading left ${DIAL_NUDGE_DEG} degrees`}
+                title={`Nudge heading left ${DIAL_NUDGE_DEG}°`}
                 className={`py-1.5 rounded border text-[11px] font-bold ${
                   turnForced === 'LEFT'
                     ? 'bg-cyan-700 border-cyan-400 text-white'
@@ -282,13 +298,15 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                       ? 'border-cyan-600/70 text-cyan-300'
                       : 'border-gray-700 text-gray-400'
                 }`}
-                onClick={() => setTurnForced((prev) => (prev === 'LEFT' ? null : 'LEFT'))}
+                onClick={() => nudge('LEFT')}
               >
-                LEFT
+                LEFT −{DIAL_NUDGE_DEG}°
               </button>
               <button
                 type="button"
                 data-testid="turn-right"
+                aria-label={`Nudge heading right ${DIAL_NUDGE_DEG} degrees`}
+                title={`Nudge heading right ${DIAL_NUDGE_DEG}°`}
                 className={`py-1.5 rounded border text-[11px] font-bold ${
                   turnForced === 'RIGHT'
                     ? 'bg-cyan-700 border-cyan-400 text-white'
@@ -296,15 +314,15 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                       ? 'border-cyan-600/70 text-cyan-300'
                       : 'border-gray-700 text-gray-400'
                 }`}
-                onClick={() => setTurnForced((prev) => (prev === 'RIGHT' ? null : 'RIGHT'))}
+                onClick={() => nudge('RIGHT')}
               >
-                RIGHT
+                RIGHT +{DIAL_NUDGE_DEG}°
               </button>
               <div className="text-[8px] text-cyan-200/70 leading-tight" data-testid="turn-hint">
                 {targetHdg == null
-                  ? 'Dial only — then Issue'
+                  ? 'Dial or nudge — then Issue'
                   : turnForced
-                    ? `Forced ${turnForced.toLowerCase()}`
+                    ? `Forced ${turnForced.toLowerCase()} · H${String(targetHdg).padStart(3, '0')}`
                     : autoTurn
                       ? `Shortest: ${autoTurn.toLowerCase()}`
                       : 'On heading'}

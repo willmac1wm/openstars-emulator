@@ -22,6 +22,28 @@ export function shortestTurn(from: number, to: number): 'LEFT' | 'RIGHT' | null 
   return turnDirection(normalizeHeadingDeg(from), normalizeHeadingDeg(to));
 }
 
+/**
+ * Nudge the staged heading by one step (default 10°) and arm the clearance.
+ * LEFT/RIGHT used to only set a forced turn direction, so with nothing
+ * staged they changed no pending clearance and ISSUE stayed disabled — the
+ * dial appeared to move (the needle follows the live heading) while the
+ * staged clearance stayed empty. A nudge now stages a heading exactly like
+ * dragging the dial does, starting from the live heading when nothing is
+ * staged yet, and forces the turn in the nudged direction.
+ */
+export const DIAL_NUDGE_DEG = 10;
+
+export function nudgeHeading(
+  currentHeading: number,
+  stagedHeading: number | null | undefined,
+  direction: 'LEFT' | 'RIGHT',
+  stepDeg: number = DIAL_NUDGE_DEG,
+): { heading: number; turnForced: 'LEFT' | 'RIGHT' } {
+  const base = stagedHeading ?? normalizeHeadingDeg(currentHeading);
+  const next = direction === 'LEFT' ? base - stepDeg : base + stepDeg;
+  return { heading: snapHeading5(next), turnForced: direction };
+}
+
 export interface TapClearanceInput {
   callsign: string;
   currentHeading: number;

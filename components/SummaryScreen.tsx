@@ -66,7 +66,10 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset }) 
                 </div>
                 <div className="bg-gray-800/50 p-3 rounded border border-gray-700">
                     <div className="text-xs text-gray-400 uppercase">Procedure Errors</div>
-                    <div className="text-xl font-bold text-orange-500">{stats.wrongAlt + stats.wrongGate}</div>
+                    <div className="text-xl font-bold text-orange-500">{stats.wrongAlt + stats.wrongGate + stats.incidents.filter((i) => i.description === 'PROCEDURE ERROR').length}</div>
+                    <div className="text-[10px] text-gray-500">
+                      {stats.wrongAlt} wrong alt · {stats.wrongGate} wrong gate · {stats.incidents.filter((i) => i.description === 'PROCEDURE ERROR').length} bad commands
+                    </div>
                 </div>
             </div>
 
@@ -77,9 +80,14 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset }) 
                     <div className="text-gray-600 italic py-2 text-center">No Safety Incidents Reported. Good Job.</div>
                 ) : (
                     stats.incidents.map((inc, idx) => (
-                        <div key={idx} className="flex gap-2 text-red-400">
-                            <span className="text-gray-600">[{inc.time}]</span>
-                            <span>{inc.description} ({inc.involved.join(', ')})</span>
+                        <div key={idx} className="flex flex-col gap-0.5 text-red-400">
+                            <div className="flex gap-2">
+                                <span className="text-gray-600">[{inc.time}]</span>
+                                <span>{inc.description} ({inc.involved.join(', ')})</span>
+                            </div>
+                            {inc.detail && (
+                                <div className="text-gray-400 pl-1 leading-snug">{inc.detail}</div>
+                            )}
                         </div>
                     ))
                 )}

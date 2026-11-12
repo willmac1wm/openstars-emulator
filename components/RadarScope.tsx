@@ -55,7 +55,7 @@ const RadarScope: React.FC<RadarScopeProps> = ({
         const dirX = Math.cos(radMid);
         const dirY = Math.sin(radMid);
         
-        const extLength = 60; 
+        const extLength = 40; // Keep corridor ends inside the 800px scope (60px clipped past the edge).
 
         const x1_out = x1 + dirX * extLength;
         const y1_out = y1 + dirY * extLength;
@@ -93,10 +93,11 @@ const RadarScope: React.FC<RadarScopeProps> = ({
                     opacity={active ? 0.7 : 0.3}
                 />
 
-                {/* Gate Label - MOVED TO OUTER END to avoid overlap with Fix */}
+                {/* Gate Label - clamped inside the scope so EAST/WEST/SOUTH
+                    no longer clip to "EA"/"ST" at the viewBox edge. */}
                 <text 
-                    x={(x1_out+x2_out)/2 + (dirX * 15)} 
-                    y={(y1_out+y2_out)/2 + (dirY * 15)} 
+                    x={Math.min(Math.max((x1_out+x2_out)/2 + (dirX * 15), 34), MAP_SIZE - 34)} 
+                    y={Math.min(Math.max((y1_out+y2_out)/2 + (dirY * 15), 16), MAP_SIZE - 16)} 
                     fill={stroke} 
                     fontSize={active ? 14 : 12} 
                     opacity={active ? 1 : 0.6}
@@ -207,6 +208,30 @@ const RadarScope: React.FC<RadarScopeProps> = ({
   const sweepX = cx + radius * Math.cos((scanAngle - 90) * (Math.PI / 180));
   const sweepY = cy + radius * Math.sin((scanAngle - 90) * (Math.PI / 180));
 
+  // De-conflict datablocks: when two labels would land on top of each other
+  // (aircraft clustered near the centre), stack the later one down in 34px
+  // steps so callsigns stay readable instead of rendering garbled together.
+  const labelOffsets = useMemo(() => {
+    const placed: { x: number; y: number }[] = [];
+    const offsets = new Map<string, { dx: number; dy: number }>();
+    for (const ac of aircraft) {
+      const rad = (ac.dataBlockDir * Math.PI) / 180;
+      const ax0 = ac.x + Math.cos(rad) * 35;
+      const ay0 = ac.y + Math.sin(rad) * 35;
+      let ay = ay0;
+      let shift = 0;
+      for (let tries = 0; tries < 4; tries++) {
+        const clash = placed.some((p) => Math.abs(p.x - ax0) < 95 && Math.abs(p.y - ay) < 30);
+        if (!clash) break;
+        shift += 34;
+        ay += 34;
+      }
+      placed.push({ x: ax0, y: ay });
+      offsets.set(ac.id, { dx: 0, dy: shift });
+    }
+    return offsets;
+  }, [aircraft]);
+
   return (
     <svg 
       viewBox={`0 0 ${MAP_SIZE} ${MAP_SIZE}`} 
@@ -315,7 +340,7 @@ const RadarScope: React.FC<RadarScopeProps> = ({
             )}
 
             {/* Data Block */}
-            <DataBlock aircraft={ac} showPrimaryInfo={showPrimaryData} />
+            <DataBlock aircraft={ac} showPrimaryInfo={showPrimaryData} labelOffset={labelOffsets.get(ac.id)} />
           </g>
         );
       })}

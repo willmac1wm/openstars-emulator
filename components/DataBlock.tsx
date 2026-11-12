@@ -1,14 +1,16 @@
 
 import React from 'react';
 import { Aircraft, AlertLevel } from '../types';
-import { COLOR_PRIMARY, COLOR_WARNING, COLOR_ALERT } from '../constants';
+import { COLOR_PRIMARY, COLOR_WARNING, COLOR_ALERT, MAP_SIZE } from '../constants';
 
 interface DataBlockProps {
   aircraft: Aircraft;
   showPrimaryInfo: boolean;
+  /** Extra shift (px, scope coords) applied to de-conflict stacked labels. */
+  labelOffset?: { dx: number; dy: number };
 }
 
-const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo }) => {
+const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelOffset }) => {
   const { callsign, altitude, speed, status, isSelected, targetAltitude, destination, type, alertLevel, dataBlockDir, handoffResult } = aircraft;
   
   // Determine Color
@@ -44,8 +46,20 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo }) => {
   // Use the aircraft's assigned direction
   const leaderLength = 35;
   const angleRad = (dataBlockDir) * (Math.PI / 180); 
-  const lineX = Math.cos(angleRad) * leaderLength;
-  const lineY = Math.sin(angleRad) * leaderLength;
+  const rawX = Math.cos(angleRad) * leaderLength;
+  const rawY = Math.sin(angleRad) * leaderLength;
+
+  // Clamp the block inside the scope: flip the leader away from the edge it
+  // would cross (text is ~90px wide, ~28px tall). Previously blocks at the
+  // scope edge were cut off (e.g. UAL123 east, DAL456 west).
+  const BLOCK_W = 92;
+  const BLOCK_H = 30;
+  let lineX = rawX + (labelOffset?.dx ?? 0);
+  let lineY = rawY + (labelOffset?.dy ?? 0);
+  if (aircraft.x + lineX + BLOCK_W > MAP_SIZE) lineX = -Math.abs(rawX) + (labelOffset?.dx ?? 0);
+  if (aircraft.x + lineX < 4) lineX = Math.abs(rawX) + (labelOffset?.dx ?? 0);
+  if (aircraft.y + lineY + BLOCK_H > MAP_SIZE) lineY = -Math.abs(rawY) + (labelOffset?.dy ?? 0);
+  if (aircraft.y + lineY < 10) lineY = Math.abs(rawY) + (labelOffset?.dy ?? 0);
 
   return (
     <g style={{ pointerEvents: 'none' }}>

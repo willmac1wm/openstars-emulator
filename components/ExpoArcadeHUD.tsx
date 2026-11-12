@@ -13,6 +13,9 @@ interface ExpoArcadeHUDProps {
   onSpeechError: (message: string) => void;
   onIssue: (command: string) => void;
   onFullscreen: () => void;
+  /** Exit to menu — previously the only exit was an unlabeled icon, and the
+   *  ControlPanel reset button was hidden entirely in Expo. */
+  onExit?: () => void;
   /** Guided how-to-play — hide the arcade countdown. */
   tutorial?: boolean;
   /** Callsigns on scope for desktop Whisper prompt biasing. */
@@ -35,6 +38,7 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
   onSpeechError,
   onIssue,
   onFullscreen,
+  onExit,
   tutorial = false,
   activeCallsigns = [],
 }) => {
@@ -68,6 +72,17 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         >
           Fullscreen
         </button>
+        {onExit && (
+          <button
+            type="button"
+            onClick={onExit}
+            aria-label="Exit to menu"
+            title="Exit to menu"
+            className="shrink-0 text-[9px] uppercase tracking-wider border border-red-800 text-red-300 px-1.5 py-0.5 rounded hover:bg-red-950/50"
+          >
+            Exit
+          </button>
+        )}
       </div>
 
       <div className="shrink-0">

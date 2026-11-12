@@ -78,6 +78,8 @@ export interface Incident {
   time: string;
   description: string;
   involved: string[]; // Callsigns
+  /** Plain-language reason (exit bearing vs gate, actual vs required alt, …). */
+  detail?: string;
 }
 
 export interface GameStats {

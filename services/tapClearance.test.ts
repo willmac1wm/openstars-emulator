@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   composeTapClearance,
   normalizeHeadingDeg,
+  nudgeHeading,
   shortestTurn,
   snapHeading5,
 } from './tapClearance';
@@ -117,5 +118,40 @@ describe('composeTapClearance', () => {
     });
     expect(r.command).toBe('AAL123 TR180 A050 S180');
     expect(r.hasElements).toBe(true);
+  });
+});
+
+describe('nudgeHeading (LEFT/RIGHT dial buttons)', () => {
+  it('nudges from the live heading when nothing is staged — and arms Issue', () => {
+    // Regression: LEFT/RIGHT used to only set a forced turn, so with no
+    // staged heading the pending clearance stayed empty and ISSUE disabled.
+    const nudged = nudgeHeading(250, null, 'LEFT');
+    expect(nudged.heading).toBe(240);
+    expect(nudged.turnForced).toBe('LEFT');
+
+    const staged = composeTapClearance({
+      callsign: 'AAL421',
+      currentHeading: 250,
+      currentAltitudeHundreds: 80,
+      currentSpeed: 250,
+      heading: nudged.heading,
+      turnForced: nudged.turnForced,
+    });
+    expect(staged.hasElements).toBe(true);
+    expect(staged.command).toBe('AAL421 TL240');
+  });
+
+  it('two LEFT nudges from a staged 250 read 230 (the reported Expo case)', () => {
+    const first = nudgeHeading(250, 250, 'LEFT');
+    expect(first.heading).toBe(240);
+    const second = nudgeHeading(250, first.heading, 'LEFT');
+    expect(second.heading).toBe(230);
+    expect(second.turnForced).toBe('LEFT');
+  });
+
+  it('RIGHT nudges forward and wraps through north', () => {
+    expect(nudgeHeading(350, null, 'RIGHT').heading).toBe(360);
+    expect(nudgeHeading(355, 355, 'RIGHT').heading).toBe(5);
+    expect(nudgeHeading(5, null, 'LEFT').heading).toBe(355);
   });
 });

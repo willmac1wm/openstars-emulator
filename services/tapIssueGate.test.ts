@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { composeTapClearance } from './tapClearance';
+import { composeTapClearance, nudgeHeading } from './tapClearance';
 import { createTapIssueGate } from './tapIssueGate';
 import { issueControllerCommand } from './commandIssue';
 import { Aircraft, AlertLevel } from '../types';
@@ -134,5 +134,28 @@ describe('tapIssueGate', () => {
     vi.advanceTimersByTime(450);
     expect(gate.tryIssue('SWA890 TL030')).toBe(true);
     expect(issued).toEqual(['SWA890 TL020', 'SWA890 TL030']);
+  });
+
+  it('a LEFT/RIGHT nudge stages a clearance that issues exactly once', () => {
+    // Regression: nudging with nothing staged left ISSUE disabled because
+    // the buttons only set a forced turn direction.
+    const issued: string[] = [];
+    const gate = createTapIssueGate((cmd) => issued.push(cmd), 450);
+
+    const nudged = nudgeHeading(250, null, 'LEFT');
+    const staged = composeTapClearance({
+      callsign: 'AAL421',
+      currentHeading: 250,
+      currentAltitudeHundreds: 80,
+      currentSpeed: 250,
+      heading: nudged.heading,
+      turnForced: nudged.turnForced,
+    });
+    expect(staged.hasElements).toBe(true);
+    expect(staged.command).toBe('AAL421 TL240');
+
+    expect(gate.tryIssue(staged.command)).toBe(true);
+    expect(gate.tryIssue(staged.command)).toBe(false);
+    expect(issued).toEqual(['AAL421 TL240']);
   });
 });

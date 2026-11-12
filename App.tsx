@@ -46,6 +46,7 @@ import {
 } from './services/speechCommand';
 import type { SpeechResultPayload } from './services/speechRecognition';
 import type { SpokenCommandFill } from './components/ControlPanel';
+import { evaluateExit } from './services/exitScoring';
 import {
   ARCADE_DURATION_MS,
   ATTRACT_IDLE_MS,
@@ -59,10 +60,9 @@ import {
 } from './services/arcade';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
-  SIM_SPEED_OPTIONS, GATES, NM_3_PX, NM_4_PX,
-  SCORE_PERFECT_EXIT, SCORE_SLOPPY_EXIT, PENALTY_WRONG_ALT, 
-  PENALTY_WRONG_GATE, PENALTY_OFF_COURSE, PENALTY_SEPARATION,
-  ALTS_NORTH_EAST, ALTS_SOUTH_WEST, GATE_RADIUS
+  SIM_SPEED_OPTIONS, NM_3_PX, NM_4_PX,
+  SCORE_PERFECT_EXIT, PENALTY_SEPARATION,
+  GATE_RADIUS
 } from './constants';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
@@ -102,6 +102,7 @@ const App: React.FC = () => {
   const [isRateOpen, setIsRateOpen] = useState(false);
   const [isDataOpen, setIsDataOpen] = useState(true);
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
+  const [currentDifficulty, setCurrentDifficulty] = useState<string>('Expo');
   const [tutorialActive, setTutorialActive] = useState(false);
   const [tutorialDoneFlag, setTutorialDoneFlag] = useState(() => hasCompletedTutorial());
   const [scoreFlash, setScoreFlash] = useState<string | null>(null);
@@ -205,6 +206,7 @@ const App: React.FC = () => {
       startArcadeRound(seed.display);
       return;
     }
+    setCurrentDifficulty(difficulty);
 
     identifyUser('guest-' + Math.floor(Math.random() * 1000000));
     setPlayMode('standard');
@@ -352,6 +354,7 @@ const App: React.FC = () => {
     setShowAttract(false);
     setShowArcadeSummary(false);
     setPlayMode('expo');
+    setCurrentDifficulty('Expo');
     setScenarioSeed(seed.display);
     writeSeedToUrl(seed.display);
     setScoreFlash(null);
@@ -399,8 +402,11 @@ const App: React.FC = () => {
       } else {
         const spawned = spawnCurveballAircraft(plan);
         if (spawned) {
+          // Spawn joins the scope UNSELECTED: auto-selecting it used to
+          // discard a dialled-but-unissued clearance for another aircraft
+          // (and the tap pad resets on selection change). The player taps
+          // the NORDO target if they want it.
           setAircraft((prev) => [...prev, { ...spawned, isSelected: false }]);
-          setSelectedId(spawned.id);
         }
       }
       const line = curveballPilotPhrase(plan.curveball.kind);
@@ -412,6 +418,21 @@ const App: React.FC = () => {
 
     trackEvent('Arcade Started', { seed: seed.display, curveball: plan.curveball.kind });
   }, [addLog, clearArcadeTimers]);
+
+  /** Restart the current session in place (same mode + seed) — the in-session
+   *  Restart button. Tutorial restarts the tutorial; arcade restarts the
+   *  round; lesson modes restart the same difficulty/seed. */
+  const restartCurrent = () => {
+    if (tutorialActiveRef.current) {
+      startTutorial();
+      return;
+    }
+    if (arcadeActiveRef.current) {
+      startArcadeRound(scenarioSeed ?? undefined);
+      return;
+    }
+    void startGame({ difficulty: currentDifficulty, seedLabel: scenarioSeed ?? undefined });
+  };
 
   // --- Command Parser ---
   const lastIssuedRef = useRef<{ cmd: string; at: number } | null>(null);
@@ -445,6 +466,28 @@ const App: React.FC = () => {
       onTrack: (callsign, echo) => trackEvent('Command Issued', { callsign, command: echo }),
     });
     if (result.aircraft !== aircraft) setAircraft(result.aircraft);
+    // Procedure errors used to be invisible: the AAR counted wrong-alt +
+    // wrong-gate only, so an invalid typed command (e.g. "DAL456 XYZ")
+    // showed up as an unexplained count. Record what it actually was.
+    if (!tutorialActiveRef.current && !tutorialDemoSilentRef.current) {
+      const procDetail =
+        result.parsed.kind === 'not_found'
+          ? `"${cmd}" — target ${result.parsed.callsign} not found: no such aircraft on scope.`
+          : result.parsed.readback?.startsWith('Unable')
+            ? `"${cmd}" — pilot replied unable (out-of-limits or unparseable clause); no clearance applied.`
+            : null;
+      if (procDetail) {
+        setStats((s) => ({
+          ...s,
+          incidents: [...s.incidents, {
+            time: new Date().toLocaleTimeString(),
+            description: 'PROCEDURE ERROR',
+            involved: [result.parsed.callsign || 'UNKNOWN'],
+            detail: procDetail,
+          }],
+        }));
+      }
+    }
     if (!tutorialDemoSilentRef.current) {
       tutorialActionsRef.current.onCommand?.(cmdRaw);
     }
@@ -630,67 +673,51 @@ const App: React.FC = () => {
 
         if (status === 'ACTIVE' && distFromCenter > GATE_RADIUS) {
             const angleRad = Math.atan2(newY - CENTER, newX - CENTER);
-            let angleDeg = angleRad * (180 / Math.PI) + 90; 
+            let angleDeg = angleRad * (180 / Math.PI) + 90;
             if (angleDeg < 0) angleDeg += 360;
-            const enteredGate = GATES.find(g => angleDeg >= g.startAngle && angleDeg <= g.endAngle);
-            
+
             status = 'HANDOFF';
-            
-            if (enteredGate) {
-                if (enteredGate.id === ac.destination) {
-                    const finalAlt = Math.round(ac.altitude);
-                    const validAlts = (enteredGate.id === 'NOR' || enteredGate.id === 'EAS') ? ALTS_NORTH_EAST : ALTS_SOUTH_WEST;
-                    const hasValidAlt = validAlts.includes(finalAlt);
-                    
-                    const semiWidth = (enteredGate.endAngle - enteredGate.startAngle) / 2;
-                    const gateMid = (enteredGate.startAngle + enteredGate.endAngle) / 2;
-                    const isClean = Math.abs(angleDeg - gateMid) < (semiWidth * 0.8);
 
-                    let pts = 0;
-                    if (isClean) {
-                        const bonus = playMode === 'expo' ? Math.max(SCORE_PERFECT_EXIT, 1000) : SCORE_PERFECT_EXIT;
-                        pts += bonus;
-                        setStats(s => ({...s, perfectExits: s.perfectExits + 1}));
-                        if (playMode === 'expo') {
-                          addLog(`Perfect handoff +${bonus}`, 'system');
-                          handoffResult = 'CLEAN EXIT';
-                          setScoreFlash(`Perfect handoff +${bonus}`);
-                          speakPilot(perfectHandoffPilotLine(ac.callsign), ac.callsign);
-                        } else {
-                          addLog(`${ac.callsign} CLEAN EXIT ${enteredGate.label}. +${bonus}`);
-                          handoffResult = "CLEAN EXIT";
-                          setScoreFlash(`${ac.callsign} CLEAN +${bonus}`);
-                        }
-                    } else {
-                        pts += SCORE_SLOPPY_EXIT;
-                        setStats(s => ({...s, sloppyExits: s.sloppyExits + 1}));
-                        addLog(`${ac.callsign} EXIT ${enteredGate.label} (TOUCHED SIDES). +${SCORE_SLOPPY_EXIT}`);
-                        handoffResult = "SLOPPY EXIT";
-                        setScoreFlash(`${ac.callsign} EXIT +${SCORE_SLOPPY_EXIT}`);
-                    }
-
-                    if (!hasValidAlt) {
-                        pts -= PENALTY_WRONG_ALT;
-                        setStats(s => ({...s, wrongAlt: s.wrongAlt + 1}));
-                        playFailTone();
-                        addLog(`${ac.callsign} WRONG ALT (${finalAlt}). -${PENALTY_WRONG_ALT}`);
-                        handoffResult = "WRONG ALT";
-                    } else {
-                        playSuccessChime();
-                    }
-                    setScore(s => s + pts);
-                } else {
-                    setScore(s => Math.max(0, s - PENALTY_WRONG_GATE));
-                    setStats(s => ({...s, wrongGate: s.wrongGate + 1}));
-                    playFailTone();
-                    addLog(`${ac.callsign} WRONG GATE (${enteredGate.label}). -${PENALTY_WRONG_GATE}`);
-                    handoffResult = "WRONG GATE";
-                }
+            // One evaluation per exit: a clean exit must meet ALL criteria
+            // (right gate, centred, legal altitude). Wrong-alt exits earn
+            // no clean/sloppy points — only the penalty — and every outcome
+            // carries its reason into the comm log + AAR incident log.
+            const perfectBonus = playMode === 'expo' ? Math.max(SCORE_PERFECT_EXIT, 1000) : SCORE_PERFECT_EXIT;
+            const exit = evaluateExit(ac, angleDeg, perfectBonus);
+            handoffResult = exit.handoffResult;
+            setScore((s) => Math.max(0, s + exit.points));
+            if (exit.kind === 'clean') {
+              setStats((s) => ({ ...s, perfectExits: s.perfectExits + 1 }));
+              playSuccessChime();
+              if (playMode === 'expo') {
+                addLog(`Perfect handoff +${exit.points}`, 'system');
+                setScoreFlash(`Perfect handoff +${exit.points}`);
+                speakPilot(perfectHandoffPilotLine(ac.callsign), ac.callsign);
+              } else {
+                addLog(`${ac.callsign} CLEAN EXIT ${exit.gateId}. +${exit.points}`);
+                setScoreFlash(`${ac.callsign} CLEAN +${exit.points}`);
+              }
+            } else if (exit.kind === 'sloppy') {
+              setStats((s) => ({ ...s, sloppyExits: s.sloppyExits + 1 }));
+              playSuccessChime();
+              addLog(`${ac.callsign} EXIT ${exit.gateId} (TOUCHED SIDES). +${exit.points} — ${exit.reason}`);
+              setScoreFlash(`${ac.callsign} EXIT +${exit.points}`);
             } else {
-                addLog(`${ac.callsign} OFF COURSE. -${PENALTY_OFF_COURSE}`);
-                setScore(s => Math.max(0, s - PENALTY_OFF_COURSE));
-                playFailTone();
-                handoffResult = "OFF COURSE";
+              // wrong-alt / wrong-gate / off-course — penalty only, no exit points.
+              if (exit.kind === 'wrong-alt') setStats((s) => ({ ...s, wrongAlt: s.wrongAlt + 1 }));
+              if (exit.kind === 'wrong-gate') setStats((s) => ({ ...s, wrongGate: s.wrongGate + 1 }));
+              playFailTone();
+              addLog(`${exit.reason} ${exit.points}`);
+              setScoreFlash(`${ac.callsign} ${exit.handoffResult} ${exit.points}`);
+              setStats((s) => ({
+                ...s,
+                incidents: [...s.incidents, {
+                  time: new Date().toLocaleTimeString(),
+                  description: exit.handoffResult,
+                  involved: [ac.callsign],
+                  detail: exit.reason,
+                }],
+              }));
             }
         }
 
@@ -748,13 +775,18 @@ const App: React.FC = () => {
                                 incidents: [...s.incidents, {
                                     time: new Date().toLocaleTimeString(),
                                     description: 'LOSS OF SEPARATION',
-                                    involved: [a.callsign, b.callsign]
+                                    involved: [a.callsign, b.callsign],
+                                    detail: `${a.callsign} / ${b.callsign} inside 3 NM ` +
+                                      `(${(distPx / NM_TO_PX).toFixed(1)} NM apart) at the same altitude ` +
+                                      `(${Math.abs(a.altitude - b.altitude) * 100} ft apart) and converging.`,
                                 }]
                             }));
-                            if (playMode === 'expo') {
-                              setScoreFlash('LOSS OF SEPARATION');
-                              window.setTimeout(() => setScoreFlash(null), 1800);
-                            }
+                            // In-play alert in EVERY mode, not just Expo and not
+                            // just the AAR: comm-log line + centre flash, on top
+                            // of the existing red CONFLICT scope overlay.
+                            addLog(`LOSS OF SEPARATION ${a.callsign} / ${b.callsign} — CONFLICT ALERT`, 'system');
+                            setScoreFlash('LOSS OF SEPARATION');
+                            window.setTimeout(() => setScoreFlash(null), 1800);
                         }
                     } else {
                          newAircraft[i].alertLevel = Math.max(newAircraft[i].alertLevel, AlertLevel.WARNING);
@@ -982,7 +1014,7 @@ const App: React.FC = () => {
 
   return (
     <div
-      className={`flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white relative pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] ${
+      className={`app-root flex flex-col landscape:flex-row h-[100dvh] w-screen bg-black text-white relative pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] ${
         gameState === SimulationState.MENU && !showAttract
           ? 'overflow-hidden'
           : 'overflow-hidden touch-none'
@@ -1040,7 +1072,7 @@ const App: React.FC = () => {
       )}
 
       {/* PRO DASHBOARD LAYOUT */}
-      <div className="flex-1 flex min-h-0 min-w-0 bg-[#050505]">
+      <div className="pro-dashboard flex-1 flex min-h-0 min-w-0 bg-[#050505]">
           
           {/* LEFT SIDEBAR: Flight Strips (Visible on LG/Laptop+) */}
           <div className="hidden lg:block h-full">
@@ -1063,20 +1095,8 @@ const App: React.FC = () => {
                   highlightGateId={selectedAircraft?.destination ?? null}
                 />
 
-                {(gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) && scenarioSeed && (
-                  <div
-                    data-testid="active-seed"
-                    className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-black/80 border border-gray-700 text-green-300 text-[10px] md:text-xs px-3 py-1 rounded font-mono tracking-wider"
-                  >
-                    SEED {scenarioSeed}
-                  </div>
-                )}
-
-                {playMode === 'expo' && gameState === SimulationState.RUNNING && !arcadeBanner && !tutorialActive && (
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-black/80 border border-green-700 text-green-300 text-[11px] md:text-xs px-3 py-2 rounded shadow-lg text-center">
-                    Hold PTT and speak, or tap a plane and build a clearance. Aim for the pulsing gate.
-                  </div>
-                )}
+                {/* Seed is shown in the ControlPanel header instead of as an
+                    overlay pill — the pill covered the 360/350 bearing labels. */}
 
                 <GuidedTutorial
                   active={tutorialActive && gameState === SimulationState.RUNNING}
@@ -1169,11 +1189,13 @@ const App: React.FC = () => {
         onCommand={handleCommand}
         messages={messages}
         score={score}
+        scenarioSeed={scenarioSeed}
         gameActive={gameState === SimulationState.RUNNING}
         gameState={gameState}
         onStart={() => startGame({ difficulty: 'Expo' })} 
         onPause={togglePause}
         onReset={returnToMenu}
+        onRestart={restartCurrent}
         statusMessage={statusMessage}
         onMoveLabel={handleMoveDataBlock}
         expoMode={playMode === 'expo'}
@@ -1182,7 +1204,7 @@ const App: React.FC = () => {
         onSpokenFillConsumed={(token) => {
           setSpokenFill((prev) => (prev && prev.token === token ? null : prev));
         }}
-        arcadeHud={playMode === 'expo' && gameState === SimulationState.RUNNING ? (
+        arcadeHud={playMode === 'expo' && (gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) ? (
           <ExpoArcadeHUD
             remainingMs={arcadeRemainingMs}
             banner={arcadeBanner}
@@ -1192,6 +1214,7 @@ const App: React.FC = () => {
             onSpeechError={handleSpeechError}
             onIssue={handleCommand}
             onFullscreen={requestFullscreen}
+            onExit={returnToMenu}
             tutorial={tutorialActive}
             activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
           />

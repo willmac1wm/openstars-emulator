@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Aircraft, CommMessage, SimulationState } from '../types';
 import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keyboard as KeyboardIcon } from 'lucide-react';
 import SoftKeyboard from './SoftKeyboard';
+import TapCommandPad from './TapCommandPad';
 import VoiceBar from './VoiceBar';
 import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
 import { parseCommand } from '../services/commandParser';
+import { applySelectionToCommandInput } from '../services/commandInput';
 import { prewarmReadback } from '../services/pilotVoice';
 
 /** Spoken clearance staged into the typed line (confirm or brief preview before auto-issue). */
@@ -21,11 +23,15 @@ interface ControlPanelProps {
   onCommand: (cmd: string) => void;
   messages: CommMessage[];
   score: number;
+  /** Current scenario seed — shown in the header (was an overlay pill on the scope). */
+  scenarioSeed?: string | null;
   gameActive: boolean; // True if RUNNING
   gameState: SimulationState;
   onStart: () => void;
   onPause: () => void;
   onReset: () => void;
+  /** Restart the current scenario/seed in place. Defaults to onReset. */
+  onRestart?: () => void;
   statusMessage: string;
   onMoveLabel?: (dir: number) => void;
   expoMode?: boolean;
@@ -58,11 +64,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onCommand,
   messages,
   score,
+  scenarioSeed = null,
   gameActive,
   gameState,
   onStart,
   onPause,
   onReset,
+  onRestart,
   statusMessage,
   onMoveLabel,
   expoMode = false,
@@ -101,29 +109,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     setShowSoftKeyboard(coarse || narrow || expoMode);
   }, [expoMode, tutorial]);
 
-  // Auto-focus + callsign fill when selecting an aircraft
+  // Auto-focus + callsign fill when selecting an aircraft.
+  // The helper only fills an empty input (or completes a bare prefix) —
+  // it never retargets a command already typed for another aircraft.
   useEffect(() => {
     if (selectedAircraft && inputRef.current) {
-      const currentVal = inputValue;
-      const trimmed = currentVal.trim();
-      const callsignMatch = trimmed.match(/^([A-Z]+[0-9]+[A-Z]*)/i);
-      const prefixOnly = trimmed.match(/^([A-Z]+)\d*$/i);
-
-      if (currentVal === '' || trimmed === '') {
-        setInputValue(`${selectedAircraft.callsign} `);
-      } else if (callsignMatch) {
-        const existingCallsign = callsignMatch[1].toUpperCase();
-        if (existingCallsign !== selectedAircraft.callsign) {
-          const restOfCommand = currentVal.substring(callsignMatch[0].length);
-          setInputValue(`${selectedAircraft.callsign}${restOfCommand}`);
-        }
-      } else if (prefixOnly) {
-        const prefix = prefixOnly[1].toUpperCase();
-        if (selectedAircraft.callsign.startsWith(prefix)) {
-          const rest = currentVal.substring(prefixOnly[0].length);
-          setInputValue(`${selectedAircraft.callsign}${rest.startsWith(' ') ? rest : ` ${rest}`.trimEnd()}`.replace(/\s+$/, ' '));
-        }
-      }
+      const next = applySelectionToCommandInput(inputValue, selectedAircraft.callsign);
+      if (next !== null && next !== inputValue) setInputValue(next);
       inputRef.current.focus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to selection changes
@@ -260,7 +252,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const isPaused = gameState === SimulationState.PAUSED;
   const isOver = gameState === SimulationState.SUMMARY;
   const isIdle = gameState === SimulationState.MENU;
-  const arcadeActive = Boolean(arcadeHud && isRunning);
+  /** Commands can be typed/armed while paused — they apply on resume. */
+  const canCommand = isRunning || isPaused;
+  const arcadeActive = Boolean(arcadeHud && canCommand);
 
   const confPct = speechConfidence != null ? Math.round(speechConfidence * 100) : null;
   const confColor =
@@ -275,13 +269,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   return (
     <div
       data-tutorial-panel={tutorial ? '1' : undefined}
-      className={`flex flex-col lg:h-full w-full lg:w-80 xl:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 text-green-400 font-mono shadow-2xl z-20 overflow-hidden transition-all duration-300 ${
+      className={`control-panel-root flex flex-col lg:h-full w-full lg:w-80 xl:w-96 bg-gray-900 border-t lg:border-t-0 lg:border-l border-gray-800 text-green-400 font-mono shadow-2xl z-20 overflow-hidden transition-all duration-300 ${
         tutorial ? 'max-h-[48dvh] landscape:max-h-none overflow-y-auto' : ''
       }`}
     >
 
       {/* 1. TOP BAR: Status & Score */}
-      <div className="flex justify-between items-center p-2 border-b border-gray-800 bg-gray-900 shrink-0">
+      <div className="flex flex-wrap justify-between items-center gap-y-1 p-2 border-b border-gray-800 bg-gray-900 shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-white tracking-widest">OPEN<span className="text-green-500">STARS</span></h1>
           <div className="text-xs flex items-center gap-1">
@@ -291,11 +285,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="bg-black/80 px-2 py-1 rounded border border-gray-700 font-mono text-green-400 font-bold text-sm shadow-[0_0_10px_rgba(20,241,149,0.1)]">
             {zuluTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC', hour12: false })}Z
           </div>
           <span data-testid="score" className="text-white text-sm font-bold">SCORE: {score}</span>
+          {scenarioSeed && (isRunning || isPaused) && (
+            <span
+              data-testid="active-seed"
+              title={`Scenario seed ${scenarioSeed}`}
+              className="text-green-300 text-[10px] font-mono border border-gray-700 bg-black/80 px-1.5 py-0.5 rounded whitespace-nowrap"
+            >
+              SEED {scenarioSeed}
+            </span>
+          )}
           <button onClick={handleShare} className="text-[10px] flex items-center gap-1 bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 text-gray-300">
             {copied ? <Check size={10} className="text-green-500" /> : <Share2 size={10} />}
           </button>
@@ -321,7 +324,28 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           )}
         </div>
 
-        {!arcadeActive && (
+        {arcadeActive ? (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={onReset}
+              aria-label="Exit to menu"
+              title="Exit to menu"
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded flex items-center justify-center gap-2 text-xs border border-gray-600"
+            >
+              EXIT TO MENU
+            </button>
+            <button
+              type="button"
+              onClick={onRestart ?? onReset}
+              aria-label="Restart this scenario"
+              title="Restart this scenario (same seed)"
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded flex items-center justify-center gap-2 text-xs border border-gray-600"
+            >
+              <RotateCcw size={12} /> RESTART
+            </button>
+          </div>
+        ) : (
           <div className="flex gap-1">
             {(isIdle || isOver) ? (
               <button onClick={onStart} className="flex-1 bg-green-700 hover:bg-green-600 text-white py-1 px-2 rounded flex items-center justify-center gap-2 text-xs">
@@ -332,8 +356,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 <button onClick={onPause} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded flex items-center justify-center gap-2 text-xs border border-gray-600">
                   {isPaused ? <Play size={12} /> : <Pause size={12} />} {isPaused ? "RESUME" : "PAUSE"}
                 </button>
-                <button onClick={onReset} className="bg-red-900/50 hover:bg-red-800 text-red-200 py-1 px-2 rounded border border-red-900">
+                <button
+                  type="button"
+                  onClick={onRestart ?? onReset}
+                  aria-label="Restart this scenario"
+                  title="Restart this scenario (same seed)"
+                  className="bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded border border-gray-600"
+                >
                   <RotateCcw size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={onReset}
+                  aria-label="Exit to menu"
+                  title="Exit to menu"
+                  className="bg-red-900/50 hover:bg-red-800 text-red-200 py-1 px-2 rounded border border-red-900"
+                >
+                  EXIT
                 </button>
               </>
             )}
@@ -372,7 +411,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 speechConfidence != null ? confColor : 'border-gray-600'
               }`}
               placeholder="UAL123 TL270 A060"
-              disabled={!isRunning}
+              disabled={!canCommand}
               autoComplete="off"
               aria-label="Command input"
             />
@@ -400,7 +439,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           <button
             type="submit"
             data-testid="command-send"
-            disabled={!isRunning || !inputValue.trim()}
+            disabled={!canCommand || !inputValue.trim()}
             className="px-2 rounded border border-green-700 bg-green-900/40 text-green-200 disabled:opacity-40"
             aria-label="Issue command"
           >
@@ -476,9 +515,22 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       )}
 
+      {/* Lesson tap pad: Trainee / Controller / Veteran get the same dial +
+          chips + ISSUE panel as Expo (previously typed-command-only, even
+          though the tutorial and tips teach tap). Hidden in Expo/tutorial,
+          where the arcade HUD above owns this slot. */}
+      {!arcadeActive && canCommand && (
+        <div
+          className="flex-1 min-h-0 flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden"
+          data-testid="lesson-tap-slot"
+        >
+          <TapCommandPad aircraft={selectedAircraft} onIssue={onCommand} />
+        </div>
+      )}
+
       {/* 4. BOTTOM SPLIT SECTION — shrink comm log when arcade HUD owns the height */}
       <div
-        className={`${
+        className={`comm-log-section ${
           arcadeActive ? 'shrink-0 max-h-14 lg:max-h-16' : 'flex-1'
         } min-h-0 flex flex-row lg:flex-col overflow-hidden`}
       >
@@ -505,7 +557,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                       : 'text-green-400'
                 }`}
               >
-                <div className="whitespace-pre-wrap break-words flex-1">
+                <div className="whitespace-nowrap flex-1 min-w-0 overflow-x-auto">
                   {msg.source === 'controller' ? `> ${msg.text}` : msg.source === 'pilot' ? msg.text : msg.text.trim()}
                 </div>
               </div>

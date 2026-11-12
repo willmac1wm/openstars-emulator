@@ -108,3 +108,39 @@
 .gate-target {
   animation: openstars-gate-pulse 1.4s ease-in-out infinite;
 }
+
+/* Phone layout (<=720px): the desktop game is a fixed 3-column grid
+ * (strips + scope + ~370px panel) that cannot fit a phone width. Stack it:
+ * scope on top at a fixed height, command panel below in normal page
+ * scroll. Desktop layout is untouched (this block only applies <=720px). */
+@media (max-width: 720px) {
+  body {
+    touch-action: pan-y;
+  }
+  .app-root {
+    overflow-y: auto !important;
+    touch-action: pan-y !important;
+  }
+  .app-root .pro-dashboard {
+    flex: none;
+    height: 46dvh;
+    min-height: 320px;
+  }
+  .app-root .control-panel-root {
+    flex: none;
+    width: 100%;
+    overflow: visible;
+  }
+  /* flex-1 children would collapse to zero height in an auto-height
+   * column — give the tap pad and comm log real minimum heights. */
+  .app-root .control-panel-root [data-testid="lesson-tap-slot"],
+  .app-root .control-panel-root [data-testid="arcade-hud-slot"] {
+    flex: none;
+    min-height: 430px;
+  }
+  .app-root .control-panel-root .comm-log-section {
+    flex: none;
+    min-height: 150px;
+    max-height: none;
+  }
+}
