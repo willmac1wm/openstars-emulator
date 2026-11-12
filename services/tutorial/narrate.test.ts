@@ -2,9 +2,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('../pilotVoice', () => {
   let ready = false;
+  let neuralFastEnough = false;
   const listeners = new Set<() => void>();
   return {
     isInstructorNaturalReady: () => ready,
+    getVoiceRuntime: () => ({ neuralFastEnough }),
     speakInstructorLine: vi.fn(),
     stopInstructorAudio: vi.fn(),
     prewarmInstructorLine: vi.fn(),
@@ -12,8 +14,9 @@ vi.mock('../pilotVoice', () => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    __setReady: (v: boolean) => {
+    __setReady: (v: boolean, fast = true) => {
       ready = v;
+      neuralFastEnough = v && fast;
       listeners.forEach((l) => l());
     },
   };

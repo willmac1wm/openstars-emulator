@@ -55,60 +55,61 @@ describe('pilot voice preload helpers', () => {
     expect(voiceStatusLabel(rt)).toBe('Using basic voice');
   });
 
-  it('speakPilot while not ready uses speechSynthesis immediately (no silent wait)', () => {
-    const speak = vi.fn();
+  function stubSpeech(speak: ReturnType<typeof vi.fn>, voices: SpeechSynthesisVoice[] = []) {
+    const synth = {
+      getVoices: () => voices,
+      speak,
+      cancel: vi.fn(),
+      speaking: false,
+      pending: false,
+      resume: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
     class FakeUtterance {
       text: string;
       voice: unknown = null;
+      lang = '';
       rate = 1;
       volume = 1;
       onend: (() => void) | null = null;
-      onerror: (() => void) | null = null;
+      onerror: ((ev?: unknown) => void) | null = null;
       constructor(text: string) {
         this.text = text;
       }
     }
     vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
     vi.stubGlobal('window', {
-      speechSynthesis: { getVoices: () => [], speak, cancel: vi.fn() },
+      speechSynthesis: synth,
       AudioContext: undefined,
       requestIdleCallback: undefined,
       setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      setInterval: globalThis.setInterval.bind(globalThis),
+      clearInterval: globalThis.clearInterval.bind(globalThis),
     });
-    vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak, cancel: vi.fn() });
+    vi.stubGlobal('speechSynthesis', synth);
+    return FakeUtterance;
+  }
+
+  it('speakPilot while not ready uses speechSynthesis (Safari-safe delay)', async () => {
+    const speak = vi.fn();
+    stubSpeech(speak, [{ name: 'Google US English', lang: 'en-US' }] as unknown as SpeechSynthesisVoice[]);
 
     const ret = speakPilot('Turn left heading two seven zero, American four twenty-one', 'AAL421');
     expect(ret).toBeUndefined();
-    expect(speak).toHaveBeenCalled();
+    await vi.waitFor(() => expect(speak).toHaveBeenCalled());
     const utter = speak.mock.calls[0][0] as { text: string };
     expect(utter.text).toContain('Turn left');
   });
 
-  it('default fast path uses Web Speech even conceptually when naturalVoices is off', () => {
+  it('default fast path uses Web Speech even conceptually when naturalVoices is off', async () => {
     updateVoiceSettings({ naturalVoices: false });
     const speak = vi.fn();
-    class FakeUtterance {
-      text: string;
-      voice: unknown = null;
-      rate = 1;
-      volume = 1;
-      onend: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor(text: string) {
-        this.text = text;
-      }
-    }
-    vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
-    vi.stubGlobal('window', {
-      speechSynthesis: { getVoices: () => [], speak, cancel: vi.fn() },
-      AudioContext: undefined,
-      requestIdleCallback: undefined,
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-    });
-    vi.stubGlobal('speechSynthesis', { getVoices: () => [], speak, cancel: vi.fn() });
+    stubSpeech(speak, [{ name: 'Google US English', lang: 'en-US' }] as unknown as SpeechSynthesisVoice[]);
 
     speakPilot('Climb and maintain five thousand, Delta four fifty six', 'DAL456');
-    expect(speak).toHaveBeenCalled();
+    await vi.waitFor(() => expect(speak).toHaveBeenCalled());
   });
 
   it('splits readbacks into short chunks for streamed natural playback', () => {
@@ -118,35 +119,18 @@ describe('pilot voice preload helpers', () => {
     ]);
   });
 
-  it('filters out novelty voices and prefers enhanced/natural English voices in Fast mode', () => {
+  it('filters out novelty voices and prefers enhanced/natural English voices in Fast mode', async () => {
     const speak = vi.fn();
-    class FakeUtterance {
-      text: string;
-      voice: { name: string; lang: string } | null = null;
-      rate = 1;
-      volume = 1;
-      onend: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor(text: string) {
-        this.text = text;
-      }
-    }
     const voices = [
       { name: 'Zarvox', lang: 'en-US' },
       { name: 'Bells', lang: 'en-US' },
       { name: 'Samantha (Enhanced)', lang: 'en-US' },
-    ];
-    vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
-    vi.stubGlobal('window', {
-      speechSynthesis: { getVoices: () => voices, speak, cancel: vi.fn() },
-      AudioContext: undefined,
-      requestIdleCallback: undefined,
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-    });
-    vi.stubGlobal('speechSynthesis', { getVoices: () => voices, speak, cancel: vi.fn() });
+    ] as unknown as SpeechSynthesisVoice[];
+    type FakeUtterance = { voice: { name: string } | null };
+    stubSpeech(speak, voices);
 
     speakPilot('Turn right heading zero niner zero, United one twenty', 'UAL120');
-    expect(speak).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
     const utter = speak.mock.calls[0][0] as FakeUtterance;
     expect(utter.voice?.name).toBe('Samantha (Enhanced)');
   });

@@ -308,6 +308,8 @@ const App: React.FC = () => {
   }, [score, highScore, stats.separationBusts, clearArcadeTimers]);
 
   const startTutorial = useCallback(() => {
+    // User gesture: unlock AudioContext + prime Safari/Chrome speechSynthesis voices.
+    primePilotVoice();
     clearArcadeTimers();
     arcadeActiveRef.current = false;
     setTutorialActive(true);

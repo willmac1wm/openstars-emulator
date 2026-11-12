@@ -187,6 +187,8 @@ export function primePilotVoice() {
   unlockAudio();
   // Persist is more likely to succeed after a user gesture.
   void requestPersistentStorage();
+  // Prime Web Speech voices even when neural is disabled — tutorial narration falls back here.
+  void ensureSpeechVoices();
   if (!getVoiceSettings().enabled) return;
   preloadPilotVoice();
   void ensureEngine();
@@ -781,16 +783,53 @@ function radioCurve(): Float32Array {
 const NOVELTY_VOICE_RE = /zarvox|bells|bubbles|boing|trinoids|whisper|organ|cellos|bad news|good news|jester|wobble|albert|bahh|superstar|hysterical|deranged/i;
 const PREFERRED_VOICE_RE = /natural|enhanced|premium|samantha|alex|daniel|ava|allison|tom|evan|nathan|google us english|google uk english|microsoft (aria|guy|jenny|ryan|sonia)/i;
 
-function browserVoice(callsign: string): SpeechSynthesisVoice | null {
-  const allEn = window.speechSynthesis
+function englishVoices(): SpeechSynthesisVoice[] {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return [];
+  return window.speechSynthesis
     .getVoices()
     .filter((voice) => voice.lang.toLowerCase().startsWith('en') && !NOVELTY_VOICE_RE.test(voice.name));
+}
+
+function browserVoice(callsign: string): SpeechSynthesisVoice | null {
+  const allEn = englishVoices();
   if (allEn.length === 0) return null;
   const preferred = allEn.filter((voice) => PREFERRED_VOICE_RE.test(voice.name));
   const pool = preferred.length > 0 ? preferred : allEn;
   let hash = 0;
   for (let i = 0; i < callsign.length; i++) hash = (hash * 31 + callsign.charCodeAt(i)) >>> 0;
   return pool[hash % pool.length];
+}
+
+/**
+ * Safari/Chrome often return [] from getVoices() until `voiceschanged`.
+ * Call from a user gesture when possible; waits briefly for the engine to populate.
+ */
+export function ensureSpeechVoices(timeoutMs = 1_200): Promise<SpeechSynthesisVoice[]> {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve([]);
+  const existing = englishVoices();
+  if (existing.length > 0) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        window.speechSynthesis.removeEventListener('voiceschanged', finish);
+      } catch {
+        /* ignore */
+      }
+      resolve(englishVoices());
+    };
+    try {
+      window.speechSynthesis.addEventListener('voiceschanged', finish);
+      // Poke the engine — required on Safari before voiceschanged fires.
+      void window.speechSynthesis.getVoices();
+    } catch {
+      finish();
+      return;
+    }
+    window.setTimeout(finish, timeoutMs);
+  });
 }
 
 /** Short VHF mic click / squelch burst to give Web Speech tactile radio presence. */
@@ -847,17 +886,26 @@ function splitForSpeech(text: string): string[] {
 function speakBrowser(text: string, callsign: string, settings: VoiceSettings): Promise<void> {
   if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve();
   const chunks = splitForSpeech(text);
-  return new Promise((resolve) => {
+  const synth = window.speechSynthesis;
+
+  return (async () => {
+    unlockAudio();
+    await ensureSpeechVoices();
+
+    // Safari drops the next utterance if speak() follows cancel() synchronously.
     try {
-      window.speechSynthesis.cancel();
+      synth.cancel();
     } catch {
       /* ignore */
     }
+    await new Promise<void>((r) => window.setTimeout(r, 50));
+
     playRadioClick(settings, 0.025);
 
     let idx = 0;
     let keepAlive: number | null = null;
     let visibilityHandler: (() => void) | null = null;
+    let chunkRetries = 0;
 
     const cleanup = () => {
       if (keepAlive != null) window.clearInterval(keepAlive);
@@ -866,62 +914,85 @@ function speakBrowser(text: string, callsign: string, settings: VoiceSettings): 
       visibilityHandler = null;
     };
 
-    const finish = () => {
-      cleanup();
-      playRadioClick(settings, 0.04);
-      resolve();
-    };
-
-    const speakNext = () => {
-      if (idx >= chunks.length) {
-        finish();
-        return;
-      }
-      const utter = new SpeechSynthesisUtterance(chunks[idx]);
-      const voice = browserVoice(callsign);
-      if (voice) utter.voice = voice;
-      utter.rate = settings.rate;
-      utter.volume = settings.volume;
-      utter.onend = () => {
-        idx += 1;
-        speakNext();
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        cleanup();
+        playRadioClick(settings, 0.04);
+        resolve();
       };
-      utter.onerror = () => {
-        idx += 1;
-        speakNext();
-      };
-      try {
-        window.speechSynthesis.speak(utter);
-      } catch {
-        finish();
-      }
-    };
 
-    // Chrome bug: speechSynthesis freezes if the tab is backgrounded or after ~15s.
-    if (typeof window.setInterval === 'function') {
-      keepAlive = window.setInterval(() => {
-        try {
-          if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
-        } catch {
-          /* ignore */
+      const speakNext = () => {
+        if (idx >= chunks.length) {
+          finish();
+          return;
         }
-      }, 10_000);
-    }
-    if (typeof document !== 'undefined' && document.addEventListener) {
-      visibilityHandler = () => {
-        if (document.visibilityState === 'visible') {
+        const utter = new SpeechSynthesisUtterance(chunks[idx]);
+        const voice = browserVoice(callsign);
+        if (voice) utter.voice = voice;
+        utter.lang = voice?.lang || 'en-US';
+        utter.rate = settings.rate;
+        utter.volume = Math.max(0.2, settings.volume);
+        utter.onend = () => {
+          chunkRetries = 0;
+          idx += 1;
+          speakNext();
+        };
+        utter.onerror = (ev) => {
+          // Retry once after a short pause — Safari often errors on the first cold speak.
+          const err = (ev as SpeechSynthesisErrorEvent).error;
+          if (chunkRetries < 1 && err !== 'canceled') {
+            chunkRetries += 1;
+            window.setTimeout(() => speakNext(), 80);
+            return;
+          }
+          chunkRetries = 0;
+          idx += 1;
+          speakNext();
+        };
+        try {
+          synth.speak(utter);
+          // If the engine stays idle (known headless / some Safari cold starts), advance.
+          window.setTimeout(() => {
+            if (!synth.speaking && !synth.pending && idx < chunks.length) {
+              // Nudge resume; if still dead, skip chunk so tutorial never hangs.
+              try {
+                synth.resume();
+              } catch {
+                /* ignore */
+              }
+            }
+          }, 400);
+        } catch {
+          finish();
+        }
+      };
+
+      // Chrome bug: speechSynthesis freezes if the tab is backgrounded or after ~15s.
+      if (typeof window.setInterval === 'function') {
+        keepAlive = window.setInterval(() => {
           try {
-            window.speechSynthesis.resume();
+            if (synth.speaking) synth.resume();
           } catch {
             /* ignore */
           }
-        }
-      };
-      document.addEventListener('visibilitychange', visibilityHandler);
-    }
+        }, 10_000);
+      }
+      if (typeof document !== 'undefined' && document.addEventListener) {
+        visibilityHandler = () => {
+          if (document.visibilityState === 'visible') {
+            try {
+              synth.resume();
+            } catch {
+              /* ignore */
+            }
+          }
+        };
+        document.addEventListener('visibilitychange', visibilityHandler);
+      }
 
-    speakNext();
-  });
+      speakNext();
+    });
+  })();
 }
 
 function withActivityTimeout<T>(
@@ -1040,8 +1111,8 @@ export function prewarmInstructorLine(text: string, rate = 1.05) {
 }
 
 /**
- * Narrate instructor text: natural Kokoro when ready+warmed; else Web Speech.
- * If Kokoro stalls beyond kokoroBudgetMs (default 2s), fall back to Web Speech for that line.
+ * Narrate instructor text: natural Kokoro when fast enough (or cached); else Web Speech.
+ * If Kokoro stalls beyond kokoroBudgetMs, fall back to Web Speech for that line.
  * Never blocks the tutorial UI — captions are authoritative.
  */
 export function speakInstructorLine(
@@ -1055,8 +1126,11 @@ export function speakInstructorLine(
   stopInstructorAudio();
   const token = instructorToken;
   const rate = opts?.rate ?? 1.05;
-  const budget = opts?.kokoroBudgetMs ?? 2_000;
+  // First Kokoro lines on WASM often take 3–5s; allow a bit more than pilot PTT budget,
+  // but never leave the trainee in silence — we fall back on timeout / suspended audio.
+  const budget = opts?.kokoroBudgetMs ?? 3_500;
   unlockAudio();
+  void ensureSpeechVoices();
 
   if (opts?.prewarmNext) {
     prewarmInstructorLine(opts.prewarmNext, rate);
@@ -1064,25 +1138,37 @@ export function speakInstructorLine(
 
   const fallbackBrowser = async () => {
     if (token !== instructorToken) return;
-    await speakBrowser(text, 'INSTRUCTOR', { ...getVoiceSettings(), rate, radioEffect: false, volume: 1 });
+    await speakBrowser(text, 'INSTRUCTOR', {
+      ...getVoiceSettings(),
+      enabled: true,
+      rate,
+      radioEffect: false,
+      volume: 1,
+    });
     if (token === instructorToken) opts?.onend?.();
   };
 
-  if (!isInstructorNaturalReady() || !kokoro) {
+  const key = instructorCacheKey(text, rate);
+  const cached = phraseCache.has(key);
+  // When neural is warm but too slow for interactive audio, use Web Speech immediately
+  // so How to Play isn't silent for the whole Kokoro budget every line.
+  const useNeural =
+    isInstructorNaturalReady() && Boolean(kokoro) && (runtime.neuralFastEnough || cached);
+
+  if (!useNeural) {
     void ensureEngine();
     void fallbackBrowser();
     return;
   }
 
-  const key = instructorCacheKey(text, rate);
   const play = async () => {
     try {
       let samples: Float32Array;
       let sampleRate: number;
-      const cached = phraseCache.get(key);
-      if (cached) {
-        samples = cached.samples;
-        sampleRate = cached.sampleRate;
+      const hit = phraseCache.get(key);
+      if (hit) {
+        samples = hit.samples;
+        sampleRate = hit.sampleRate;
       } else {
         const audio = await withTimeout(
           kokoro!.generate(text, { voice: INSTRUCTOR_VOICE, speed: rate, priority: 'high' }),
@@ -1094,7 +1180,15 @@ export function speakInstructorLine(
       }
       if (token !== instructorToken) return;
       unlockAudio();
-      if (!audioCtx || !samples?.length) {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        try {
+          await audioCtx.resume();
+        } catch {
+          /* ignore */
+        }
+      }
+      // Autoplay policy: suspended context plays silence without throwing — use Web Speech.
+      if (!audioCtx || audioCtx.state !== 'running' || !samples?.length) {
         await fallbackBrowser();
         return;
       }
