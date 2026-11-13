@@ -170,7 +170,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'gate',
     narration:
-      'Guide each plane to its glowing exit gate at a legal altitude. Clean exits score points — and you hear a happy chime.',
+      'Guide each plane to its glowing exit gate at a legal altitude — north and east gates need seven or nine thousand feet, south and west gates need six or eight thousand. The gate label on the radar shows its altitudes. Clean exits score points — and you hear a happy chime.',
     highlight: { kind: 'region', id: 'gate' },
     demo: [{ kind: 'chime' }, { kind: 'wait', ms: 900 }],
   },
@@ -184,7 +184,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'done',
     narration:
-      'You are ready! Try the Expo arcade next — clear the gates, listen for readbacks, and beat the clock. Have fun, controller!',
+      'You are ready! You can also type a whole clearance at once — try AAL421 TL270 A060 S210 for a turn, an altitude, and a speed in one go. Try the Expo arcade next — clear the gates, listen for readbacks, and beat the clock. Have fun, controller!',
     dwellMs: 0,
   },
 ];

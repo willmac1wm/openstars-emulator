@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateExit, gateForExitBearing, gateForHeading } from './exitScoring';
+import { evaluateExit, gateAltLabel, gateForExitBearing, gateForHeading, requiredAltsForGate } from './exitScoring';
 
 const dal = { callsign: 'DAL456', destination: 'EAS', heading: 90, altitude: 90 };
 const swa = { callsign: 'SWA890', destination: 'NOR', heading: 35, altitude: 71 };
@@ -69,5 +69,27 @@ describe('evaluateExit — the Nov 12 browser-test cases', () => {
     expect(r.kind).toBe('sloppy');
     expect(r.points).toBe(500);
     expect(r.reason).toMatch(/off centre/);
+  });
+});
+
+describe('gateAltLabel — scope labels (menu altitudes moved to the scope)', () => {
+  it('N/E gates take A070 / A090', () => {
+    expect(requiredAltsForGate('NOR')).toEqual([70, 90]);
+    expect(requiredAltsForGate('EAS')).toEqual([70, 90]);
+    expect(gateAltLabel('NOR')).toBe('A070 / A090');
+    expect(gateAltLabel('EAS')).toBe('A070 / A090');
+  });
+
+  it('S/W gates take A060 / A080', () => {
+    expect(requiredAltsForGate('SOU')).toEqual([60, 80]);
+    expect(requiredAltsForGate('WES')).toEqual([60, 80]);
+    expect(gateAltLabel('SOU')).toBe('A060 / A080');
+    expect(gateAltLabel('WES')).toBe('A060 / A080');
+  });
+
+  it('matches the altitudes evaluateExit enforces', () => {
+    // NOR at 7000 is legal; at 8000 it is a wrong-alt exit.
+    expect(evaluateExit({ callsign: 'SWA890', destination: 'NOR', heading: 35, altitude: 70 }, 35).kind).toBe('clean');
+    expect(evaluateExit({ callsign: 'SWA890', destination: 'NOR', heading: 35, altitude: 80 }, 35).kind).toBe('wrong-alt');
   });
 });

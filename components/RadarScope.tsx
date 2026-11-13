@@ -1,17 +1,18 @@
 
 import React, { useMemo } from 'react';
 import { Aircraft, AlertLevel } from '../types';
-import { 
-  MAP_SIZE, 
-  WAYPOINTS, 
+import {
+  MAP_SIZE,
+  WAYPOINTS,
   GATES,
   GATE_RADIUS,
-  COLOR_SECONDARY, 
+  COLOR_SECONDARY,
   COLOR_PRIMARY,
   COLOR_WARNING,
   COLOR_ALERT,
   CENTER,
 } from '../constants';
+import { gateAltLabel } from '../services/exitScoring';
 import { nmToPx, separationRingRadiusPx } from '../sim/geometry';
 import DataBlock from './DataBlock';
 
@@ -95,11 +96,11 @@ const RadarScope: React.FC<RadarScopeProps> = ({
 
                 {/* Gate Label - clamped inside the scope so EAST/WEST/SOUTH
                     no longer clip to "EA"/"ST" at the viewBox edge. */}
-                <text 
-                    x={Math.min(Math.max((x1_out+x2_out)/2 + (dirX * 15), 34), MAP_SIZE - 34)} 
-                    y={Math.min(Math.max((y1_out+y2_out)/2 + (dirY * 15), 16), MAP_SIZE - 16)} 
-                    fill={stroke} 
-                    fontSize={active ? 14 : 12} 
+                <text
+                    x={Math.min(Math.max((x1_out+x2_out)/2 + (dirX * 15), 34), MAP_SIZE - 34)}
+                    y={Math.min(Math.max((y1_out+y2_out)/2 + (dirY * 15), 16), MAP_SIZE - 16)}
+                    fill={stroke}
+                    fontSize={active ? 14 : 12}
                     opacity={active ? 1 : 0.6}
                     textAnchor="middle"
                     alignmentBaseline="middle"
@@ -107,6 +108,24 @@ const RadarScope: React.FC<RadarScopeProps> = ({
                     style={{ letterSpacing: '1px' }}
                 >
                     {gate.label}
+                </text>
+                {/* Legal exit altitudes for this gate — shown on the scope
+                    where the player needs them (was a menu line). Clamped
+                    wider than the gate name: the alt text is ~90px wide, so
+                    a 34px clamp still clips it on the WEST gate. */}
+                <text
+                    data-testid={`gate-alt-${gate.id}`}
+                    x={Math.min(Math.max((x1_out+x2_out)/2 + (dirX * 15), 50), MAP_SIZE - 50)}
+                    y={Math.min(Math.max((y1_out+y2_out)/2 + (dirY * 15) + 16, 30), MAP_SIZE - 8)}
+                    fill={stroke}
+                    fontSize={10}
+                    opacity={active ? 0.95 : 0.55}
+                    textAnchor="middle"
+                    alignmentBaseline="middle"
+                    fontWeight="bold"
+                    style={{ letterSpacing: '1px' }}
+                >
+                    {gateAltLabel(gate.id)}
                 </text>
             </g>
         );

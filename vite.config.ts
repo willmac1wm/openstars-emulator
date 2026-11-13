@@ -55,7 +55,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['services/**/*.test.ts', 'sim/**/*.test.ts'],
+    include: ['services/**/*.test.ts', 'sim/**/*.test.ts', 'components/**/*.test.tsx'],
   },
   // FIX: Esbuild must be here at the root, NOT inside the build object
   esbuild: {

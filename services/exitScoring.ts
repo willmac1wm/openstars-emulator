@@ -69,6 +69,18 @@ export function gateBearingRange(gate: Gate): string {
   return `${gate.startAngle}°–${gate.endAngle}°`;
 }
 
+/** Legal exit altitudes for a gate: N/E gates (NOR, EAS) take odd hundreds, S/W (SOU, WES) even. */
+export function requiredAltsForGate(gateId: string): number[] {
+  return gateId === 'NOR' || gateId === 'EAS' ? ALTS_NORTH_EAST : ALTS_SOUTH_WEST;
+}
+
+/** Short scope label for a gate's legal altitudes, e.g. "A070 / A090". */
+export function gateAltLabel(gateId: string): string {
+  return requiredAltsForGate(gateId)
+    .map((a) => `A${String(a).padStart(3, '0')}`)
+    .join(' / ');
+}
+
 export function evaluateExit(
   ac: Pick<Aircraft, 'callsign' | 'destination' | 'heading' | 'altitude'>,
   exitBearingDeg: number,
@@ -115,8 +127,7 @@ export function evaluateExit(
     };
   }
 
-  const requiredAlts =
-    judgedGate.id === 'NOR' || judgedGate.id === 'EAS' ? ALTS_NORTH_EAST : ALTS_SOUTH_WEST;
+  const requiredAlts = requiredAltsForGate(judgedGate.id);
   const hasValidAlt = requiredAlts.includes(actualAlt);
   const gateMid = (judgedGate.startAngle + judgedGate.endAngle) / 2;
   const semiWidth = (judgedGate.endAngle - judgedGate.startAngle) / 2;

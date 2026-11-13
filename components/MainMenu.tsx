@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Trophy, ChevronRight, Sparkles, Lock, CalendarDays, GraduationCap, Timer } from 'lucide-react';
+import { Play, Lock, Sparkles, Timer } from 'lucide-react';
 import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
-import { getVoiceRuntime, subscribeVoiceRuntime, useBasicVoiceNow, VoiceRuntime } from '../services/pilotVoice';
-import VoicePreloadBanner from './VoicePreloadBanner';
 import DesktopDownload from './DesktopDownload';
 import { ENABLE_VECTOR_TO_FINAL } from '../services/features';
 import { isDesktopApp } from '../services/desktop';
@@ -48,6 +46,17 @@ const MODES: Array<{
   { id: 'Hard', label: 'VETERAN', desc: '12 aircraft · heavy traffic' },
 ];
 
+/**
+ * Simplified menu (Nov 2026, William's call): title + five session cards +
+ * How to Play + one footer line. Everything else moved, not deleted:
+ * - Voice loading lives nowhere on the menu — natural voices load silently
+ *   in the background, Fast voice is the default (see pilotVoice).
+ * - Quick Tips / command examples live in the guided tutorial.
+ * - Gate altitudes live on the scope, next to each gate (RadarScope).
+ * - The seed field hides behind the footer's "replay" link.
+ * - Profile / rank / unlocks collapse to the footer line; tapping the rank
+ *   reveals the initials editor, Class Scores stays one tap away.
+ */
 const MainMenu: React.FC<MainMenuProps> = ({
   onStart,
   onTutorial,
@@ -60,11 +69,10 @@ const MainMenu: React.FC<MainMenuProps> = ({
   onOpenLeaderboard,
   onOpenInstructor,
 }) => {
-  const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
-  const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
-  const [startHint, setStartHint] = useState<string | null>(null);
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [initialsInput, setInitialsInput] = useState(profile?.initials ?? 'ATC');
   const [lockedHint, setLockedHint] = useState<string | null>(null);
   const dailySeed = dailySeedToday();
@@ -78,37 +86,52 @@ const MainMenu: React.FC<MainMenuProps> = ({
     if (urlSeed) setSeedInput(urlSeed);
   }, [urlSeed]);
 
-  useEffect(() => subscribeVoiceRuntime(() => setVoice(getVoiceRuntime())), []);
-
-  const voicesLoading = voice.phase === 'loading';
-
-  const handleStart = (level: ScenarioDifficulty = difficulty) => {
-    if (voicesLoading) {
-      setStartHint('Voices still loading — start anyway? Readbacks use basic voice until neural is ready.');
-    } else {
-      setStartHint(null);
-    }
-    const resolved = resolveSeedInput(seedInput || DEFAULT_SCENARIO_SEEDS[level], level);
+  const handleStart = (level: ScenarioDifficulty) => {
+    const seed =
+      !urlSeed && (!seedInput || Object.values(DEFAULT_SCENARIO_SEEDS).includes(seedInput))
+        ? DEFAULT_SCENARIO_SEEDS[level]
+        : seedInput || DEFAULT_SCENARIO_SEEDS[level];
+    const resolved = resolveSeedInput(seed, level);
     onStart({ difficulty: level, seedLabel: resolved.display });
   };
 
-  const startWithBasic = (level: ScenarioDifficulty = difficulty) => {
-    useBasicVoiceNow();
-    setStartHint(null);
-    handleStart(level);
+  const startMode = (mode: (typeof MODES)[number]) => {
+    if (progress && !isModeUnlocked(progress, mode.id)) {
+      setLockedHint(unlockRequirement(mode.id));
+      return;
+    }
+    setLockedHint(null);
+    handleStart(mode.id);
   };
+
+  const sixtySecondCard = (
+    <button
+      type="button"
+      data-testid="mode-Expo60"
+      onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sixty-1' })}
+      className="w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left bg-black border-gray-800 text-gray-500 hover:border-green-500 hover:text-white"
+    >
+      <div>
+        <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-gray-200">
+          <Timer size={16} className="text-cyan-400" />
+          60-SECOND CHALLENGE
+        </div>
+        <div className="text-xs md:text-sm opacity-70">Beat the clock · waves at 0 / 12 / 24s</div>
+      </div>
+      <span className="text-green-500 text-xl" aria-hidden>›</span>
+    </button>
+  );
 
   return (
     // Scroll from the true top at every viewport height. Do NOT use justify-center on the
-    // overflow container — that clips the logo / voice banner above the fold on short windows.
+    // overflow container — that clips the logo above the fold on short windows.
     <div
       data-testid="main-menu"
       className="absolute inset-0 z-50 bg-black text-green-500 font-mono select-none overflow-y-auto overscroll-contain touch-pan-y"
     >
       <div className="w-full min-h-full flex flex-col items-center justify-start p-3 md:p-6 py-6 md:py-8">
-      <div className="w-full max-w-5xl grid gap-4 lg:grid-cols-[1.1fr_0.9fr] items-start">
-        <div className="space-y-4">
-          <div className="text-center lg:text-left space-y-2">
+        <div className="w-full max-w-xl space-y-4">
+          <div className="text-center space-y-2">
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-white drop-shadow-[0_0_10px_rgba(20,241,149,0.8)]">
               OPEN<span className="text-green-500">STARS</span>
             </h1>
@@ -118,14 +141,12 @@ const MainMenu: React.FC<MainMenuProps> = ({
             </div>
           </div>
 
-          <VoicePreloadBanner />
-
           {onTutorial && (
             <button
               type="button"
               data-testid="how-to-play"
               onClick={onTutorial}
-              className="w-full bg-cyan-900/50 hover:bg-cyan-800/60 border border-cyan-600/70 text-cyan-100 font-bold text-xl md:text-2xl py-5 px-3 rounded transition-all flex flex-col items-center justify-center gap-1"
+              className="w-full bg-cyan-900/50 hover:bg-cyan-800/60 border border-cyan-600/70 text-cyan-100 font-bold text-xl md:text-2xl py-4 px-3 rounded transition-all flex flex-col items-center justify-center gap-1"
             >
               <span className="flex items-center gap-2"><Sparkles size={22} /> HOW TO PLAY</span>
               <span className="text-xs font-normal tracking-wide opacity-80">
@@ -139,7 +160,7 @@ const MainMenu: React.FC<MainMenuProps> = ({
               type="button"
               data-testid="vtf-menu"
               onClick={onOpenVtf}
-              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-5 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1"
+              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xl md:text-2xl py-4 px-3 rounded shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all flex flex-col items-center justify-center gap-1"
             >
               <span className="flex items-center gap-2"><Play fill="black" size={24} /> VECTOR TO FINAL</span>
               <span className="text-xs font-normal tracking-wide opacity-80">
@@ -147,132 +168,6 @@ const MainMenu: React.FC<MainMenuProps> = ({
               </span>
             </button>
           )}
-
-          {voicesLoading && (
-            <button
-              type="button"
-              data-testid="expo-start-basic"
-              onClick={() => startWithBasic('Expo')}
-              className="w-full border border-amber-700/60 text-amber-200 hover:bg-amber-950/40 font-bold py-3 rounded text-sm"
-            >
-              Start Expo with basic voice
-            </button>
-          )}
-          {startHint && (
-            <div data-testid="voice-start-hint" className="text-xs text-amber-200/90 bg-amber-950/30 border border-amber-800/40 rounded px-3 py-2">
-              {startHint}
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-3 items-center justify-between bg-gray-950 border border-gray-800 rounded p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Trophy size={16} className="text-yellow-500" />
-              <span className="text-gray-400">BEST</span>
-              <span className="text-white font-bold text-lg">{highScore}</span>
-            </div>
-            <label className="flex items-center gap-2 text-xs md:text-sm text-gray-400">
-              <span className="uppercase tracking-wider">Seed</span>
-              <input
-                data-testid="seed-input"
-                value={seedInput}
-                onChange={(event) => setSeedInput(event.target.value)}
-                className="w-36 md:w-44 bg-black border border-gray-700 rounded px-2 py-2 text-green-300 font-mono text-sm focus:border-green-500 focus:outline-none"
-                placeholder="1234"
-                aria-label="Scenario seed"
-              />
-            </label>
-          </div>
-
-          {/* Player profile + progression — local only, saved on this device. */}
-          <div data-testid="progression-panel" className="bg-gray-950 border border-gray-800 rounded p-3 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="flex items-center gap-2 text-xs md:text-sm text-gray-400">
-                <span className="uppercase tracking-wider">Your initials</span>
-                <input
-                  data-testid="profile-initials-input"
-                  value={initialsInput}
-                  maxLength={3}
-                  onChange={(event) => {
-                    const next = sanitizeInitials(event.target.value);
-                    setInitialsInput(next);
-                    if (next.length === 3) onProfileChange?.(saveProfile({ initials: next }));
-                  }}
-                  onBlur={() => onProfileChange?.(saveProfile({ initials: initialsInput }))}
-                  className="w-20 bg-black border border-gray-700 rounded px-2 py-2 text-center text-green-300 font-mono text-sm uppercase tracking-[0.3em] focus:border-green-500 focus:outline-none"
-                  aria-label="Your initials"
-                />
-              </label>
-              <span className="text-[11px] text-gray-500">Saved on this device only — no account</span>
-            </div>
-            {progress && rank && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs md:text-sm">
-                  <span className="text-green-400 font-bold">RANK: {rank.name}</span>
-                  <span className="text-gray-400">{progress.totalCleanExits} clean exits · {progress.totalSessions} sessions · best {progress.bestScore}</span>
-                </div>
-                {rankNext ? (
-                  <div>
-                    <div className="h-2 bg-gray-800 rounded overflow-hidden">
-                      <div
-                        className="h-full bg-green-500"
-                        style={{ width: `${Math.min(100, Math.round((rankNext.have / rankNext.need) * 100))}%` }}
-                      />
-                    </div>
-                    <div className="text-[11px] text-gray-500 mt-1">
-                      {rankNext.have}/{rankNext.need} clean exits to {rankNext.rank.name}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-yellow-400">Top rank reached.</div>
-                )}
-                {unlockNext && (
-                  <div data-testid="next-unlock" className="text-[11px] text-amber-300">
-                    Next unlock: {unlockNext.label} — {unlockNext.have}/{unlockNext.need} clean exits in {unlockNext.mode === 'Medium' ? 'TRAINEE' : 'CONTROLLER'}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                data-testid="daily-challenge"
-                onClick={() => onStart({ difficulty: 'Easy', seedLabel: dailySeed, daily: true })}
-                className="flex-1 min-w-[140px] bg-amber-700/80 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
-              >
-                <CalendarDays size={16} /> TODAY'S CHALLENGE · {dailyLabelForDate(new Date())}
-              </button>
-              <button
-                type="button"
-                data-testid="sixty-second-challenge"
-                onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sixty-1' })}
-                className="flex-1 min-w-[140px] bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
-              >
-                <Timer size={16} /> 60-SECOND CHALLENGE
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {onOpenLeaderboard && (
-                <button
-                  type="button"
-                  data-testid="leaderboard-open"
-                  onClick={onOpenLeaderboard}
-                  className="flex-1 min-w-[120px] border border-yellow-600 text-yellow-300 hover:bg-yellow-950/40 font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
-                >
-                  <Trophy size={16} /> LEADERBOARD
-                </button>
-              )}
-              {onOpenInstructor && (
-                <button
-                  type="button"
-                  data-testid="instructor-open"
-                  onClick={onOpenInstructor}
-                  className="flex-1 min-w-[120px] border border-gray-600 text-gray-200 hover:bg-gray-900 font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
-                >
-                  <GraduationCap size={16} /> CLASS SCORES
-                </button>
-              )}
-            </div>
-          </div>
 
           <div className="space-y-2">
             <div className="text-xs text-gray-500 uppercase tracking-wider ml-1">Pick a session</div>
@@ -284,75 +179,37 @@ const MainMenu: React.FC<MainMenuProps> = ({
             {MODES.map((mode) => {
               const locked = Boolean(progress && !isModeUnlocked(progress, mode.id));
               const requirement = unlockRequirement(mode.id);
-              return (
-              <button
-                key={mode.id}
-                type="button"
-                data-testid={`mode-${mode.id}`}
-                disabled={locked}
-                onClick={() => {
-                  if (locked) {
-                    setLockedHint(requirement);
-                    return;
-                  }
-                  setLockedHint(null);
-                  setDifficulty(mode.id);
-                  if (!urlSeed && (!seedInput || Object.values(DEFAULT_SCENARIO_SEEDS).includes(seedInput))) {
-                    setSeedInput(DEFAULT_SCENARIO_SEEDS[mode.id]);
-                  }
-                }}
-                className={`w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left ${
-                  locked
-                    ? 'bg-black border-gray-900 text-gray-600 cursor-not-allowed'
-                    : difficulty === mode.id
-                    ? 'bg-green-900/30 border-green-500 text-white shadow-[0_0_15px_rgba(20,241,149,0.1)]'
-                    : 'bg-black border-gray-800 text-gray-500 hover:border-gray-600'
-                }`}
-              >
-                <div>
-                  <div className={`font-bold text-lg md:text-xl flex items-center gap-2 ${difficulty === mode.id && !locked ? 'text-green-400' : 'text-gray-400'}`}>
-                    {locked && <Lock size={16} className="text-gray-600" />}
-                    {mode.label}
-                    {mode.badge && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-600 text-amber-300">{mode.badge}</span>
-                    )}
+              const card = (
+                <button
+                  key={mode.id}
+                  type="button"
+                  data-testid={`mode-${mode.id}`}
+                  disabled={locked}
+                  onClick={() => startMode(mode)}
+                  className={`w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left ${
+                    locked
+                      ? 'bg-black border-gray-900 text-gray-600 cursor-not-allowed'
+                      : 'bg-black border-gray-800 text-gray-500 hover:border-green-500 hover:text-white'
+                  }`}
+                >
+                  <div>
+                    <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-gray-200">
+                      {locked && <Lock size={16} className="text-gray-600" />}
+                      {mode.label}
+                      {mode.badge && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-600 text-amber-300">{mode.badge}</span>
+                      )}
+                    </div>
+                    <div className="text-xs md:text-sm opacity-70">{locked && requirement ? requirement : mode.desc}</div>
                   </div>
-                  <div className="text-xs md:text-sm opacity-70">{locked && requirement ? requirement : mode.desc}</div>
-                </div>
-                {difficulty === mode.id && !locked && <ChevronRight className="text-green-500" />}
-              </button>
+                  <span className="text-green-500 text-xl" aria-hidden>›</span>
+                </button>
               );
+              // Session order: Expo, 60-Second, Trainee, Controller, Veteran.
+              return mode.id === 'Expo' ? [card, sixtySecondCard] : card;
             })}
-            {showVtf && (
-              <button
-                type="button"
-                data-testid="mode-vtf"
-                onClick={onOpenVtf}
-                className="w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left bg-cyan-950/30 border-cyan-600/80 text-white hover:bg-cyan-900/40 shadow-[0_0_15px_rgba(6,182,212,0.12)]"
-              >
-                <div>
-                  <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-cyan-300">
-                    VECTOR TO FINAL
-                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500 text-cyan-200">ILS / VOR</span>
-                  </div>
-                  <div className="text-xs md:text-sm text-cyan-100/70">Final approach course intercept · FAF · wake separation</div>
-                </div>
-                <ChevronRight className="text-cyan-400" />
-              </button>
-            )}
           </div>
 
-          <button
-            type="button"
-            data-testid="start-selected"
-            onClick={() => handleStart()}
-            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold text-xl rounded transition-all flex flex-col items-center justify-center gap-1 py-4"
-          >
-            <span className="flex items-center gap-2"><Play size={18} /> START {difficulty.toUpperCase()}</span>
-            {voicesLoading && (
-              <span className="text-[11px] font-normal text-green-100/80">Voices still loading — start anyway?</span>
-            )}
-          </button>
           {/* Keep expo-start as alias for Expo session start (tests / attract). Never forces tutorial. */}
           <button
             type="button"
@@ -364,51 +221,114 @@ const MainMenu: React.FC<MainMenuProps> = ({
           >
             Start Expo
           </button>
-          {voicesLoading && (
-            <button
-              type="button"
-              data-testid="start-selected-basic"
-              onClick={() => startWithBasic()}
-              className="w-full border border-amber-700/60 text-amber-200 hover:bg-amber-950/40 font-bold py-3 rounded text-sm"
-            >
-              Start with basic voice
-            </button>
-          )}
+
+          <div className="text-center space-y-2 pt-1">
+            <div className="text-sm text-gray-400">
+              <span className="text-gray-500">BEST</span>{' '}
+              <span className="text-white font-bold">{highScore}</span>
+              {' · '}
+              <button
+                type="button"
+                data-testid="profile-open"
+                onClick={() => setProfileOpen((open) => !open)}
+                className="text-green-400 font-bold hover:underline"
+                aria-expanded={profileOpen}
+              >
+                RANK: {rank ? rank.name : 'TRAINEE'}
+              </button>
+              {progress && (
+                <span className="text-gray-500">
+                  {' · '}{progress.totalCleanExits} clean exits · {progress.totalSessions} sessions
+                </span>
+              )}
+            </div>
+            {profileOpen && (
+              <div data-testid="profile-editor" className="flex flex-wrap items-center justify-center gap-2 text-xs md:text-sm text-gray-400">
+                <label className="flex items-center gap-2">
+                  <span className="uppercase tracking-wider">Your initials</span>
+                  <input
+                    data-testid="profile-initials-input"
+                    value={initialsInput}
+                    maxLength={3}
+                    onChange={(event) => {
+                      const next = sanitizeInitials(event.target.value);
+                      setInitialsInput(next);
+                      if (next.length === 3) onProfileChange?.(saveProfile({ initials: next }));
+                    }}
+                    onBlur={() => onProfileChange?.(saveProfile({ initials: initialsInput }))}
+                    className="w-20 bg-black border border-gray-700 rounded px-2 py-2 text-center text-green-300 font-mono text-sm uppercase tracking-[0.3em] focus:border-green-500 focus:outline-none"
+                    aria-label="Your initials"
+                  />
+                </label>
+                <span className="text-[11px] text-gray-500">Saved on this device only — no account</span>
+                {rankNext && (
+                  <span className="text-[11px] text-gray-500">
+                    {rankNext.have}/{rankNext.need} clean exits to {rankNext.rank.name}
+                  </span>
+                )}
+                {unlockNext && (
+                  <span data-testid="next-unlock" className="text-[11px] text-amber-300">
+                    Next unlock: {unlockNext.label} — {unlockNext.have}/{unlockNext.need} clean exits in {unlockNext.mode === 'Medium' ? 'TRAINEE' : 'CONTROLLER'}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs md:text-sm">
+              <button
+                type="button"
+                data-testid="daily-challenge"
+                onClick={() => onStart({ difficulty: 'Easy', seedLabel: dailySeed, daily: true })}
+                className="text-amber-300 hover:underline"
+              >
+                TODAY&apos;S CHALLENGE · {dailyLabelForDate(new Date())}
+              </button>
+              {onOpenLeaderboard && (
+                <button
+                  type="button"
+                  data-testid="leaderboard-open"
+                  onClick={onOpenLeaderboard}
+                  className="text-yellow-300 hover:underline"
+                >
+                  LEADERBOARD
+                </button>
+              )}
+              {onOpenInstructor && (
+                <button
+                  type="button"
+                  data-testid="instructor-open"
+                  onClick={onOpenInstructor}
+                  className="text-gray-200 hover:underline"
+                >
+                  CLASS SCORES
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="replay-seed-toggle"
+                onClick={() => setSeedOpen((open) => !open)}
+                className="text-gray-500 hover:underline"
+                aria-expanded={seedOpen}
+              >
+                replay
+              </button>
+            </div>
+            {seedOpen && (
+              <label className="flex items-center justify-center gap-2 text-xs md:text-sm text-gray-400">
+                <span className="uppercase tracking-wider">Seed</span>
+                <input
+                  data-testid="seed-input"
+                  value={seedInput}
+                  onChange={(event) => setSeedInput(event.target.value)}
+                  className="w-36 md:w-44 bg-black border border-gray-700 rounded px-2 py-2 text-green-300 font-mono text-sm focus:border-green-500 focus:outline-none"
+                  placeholder="1234"
+                  aria-label="Scenario seed"
+                />
+                <span className="text-gray-500">Replay a period with the same traffic: ?seed=1234</span>
+              </label>
+            )}
+          </div>
         </div>
-
-        <aside className="bg-gray-950 border border-gray-800 rounded p-4 md:p-5 space-y-4 text-gray-300">
-          <div className="flex items-center gap-2 text-green-400 font-bold text-lg">
-            <Sparkles size={18} /> QUICK TIPS
-          </div>
-          <ol className="space-y-3 text-sm md:text-base leading-relaxed list-decimal list-inside">
-            <li>Select an aircraft on the scope.</li>
-            <li>Type a command (e.g. UAL123 TL270 A060), or dial + chips, then Issue / Enter.</li>
-            <li>Hold PTT / Space to speak a clearance — tap and type always work too.</li>
-            <li>Keep planes 3 miles / 1,000 ft apart; hit the gate to score.</li>
-          </ol>
-
-          <div>
-            <div className="text-green-400 font-bold text-sm uppercase tracking-wider mb-2">Command examples</div>
-            <div className="space-y-2 font-mono text-xs md:text-sm bg-black/60 border border-gray-800 rounded p-3">
-              <div><span className="text-cyan-400">AAL421 TL270</span> <span className="text-gray-500">turn left heading 270</span></div>
-              <div><span className="text-cyan-400">UAL123 A060</span> <span className="text-gray-500">descend/climb to 6,000</span></div>
-              <div><span className="text-cyan-400">DAL456 A100</span> <span className="text-gray-500">10,000 ft</span></div>
-              <div><span className="text-cyan-400">SWA890 S210</span> <span className="text-gray-500">speed 210</span></div>
-              <div><span className="text-cyan-400">AAL404 TL270 A060 S210</span> <span className="text-gray-500">combo</span></div>
-            </div>
-          </div>
-
-          <div className="text-xs md:text-sm text-gray-500 space-y-1">
-            <div>N/E exits: <span className="text-white">A070 or A090</span></div>
-            <div>S/W exits: <span className="text-white">A060 or A080</span></div>
-            <div>
-              Replay a period with the same traffic:
-              {' '}<span className="text-green-300">?seed=1234</span>
-            </div>
-          </div>
-        </aside>
-      </div>
-      {!isDesktopApp() && <DesktopDownload />}
+        {!isDesktopApp() && <DesktopDownload />}
       </div>
     </div>
   );
