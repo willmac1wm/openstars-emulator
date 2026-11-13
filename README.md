@@ -18,7 +18,7 @@ Do not treat a pull request as a production deploy. Vercel may publish a preview
 ## Classroom and exposition demo
 
 1. Open the site (or `npm run dev` locally). No login.
-2. For a booth or first-time kid, press **Try the scope** (Expo Arcade): a **3-minute** shift with escalating waves, one curveball (medevac / NORDO / go-around), push-to-talk voice, tap-to-command, and a local high-score board.
+2. For a booth or first-time kid, press **Try the scope** (Expo Arcade): a **5-minute** shift with escalating waves, one curveball (NORDO — a silent aircraft with no radio), push-to-talk voice, tap-to-command, and a local high-score board.
 3. After ~60s idle on the menu, **attract mode** auto-plays the “Press to be an Air Traffic Controller” banner; any key or tap starts a round. After the score screen the booth returns to attract.
 4. For a longer lesson, pick **Trainee** (4), **Controller** (8), or **Veteran** (12). Replay the same traffic with a seed: open `?seed=1234`, or type a seed on the menu. Defaults are `expo-booth`, `trainee-1`, `controller-1`, and `veteran-1`. The active seed is shown on the scope while you play.
 5. **Voice (PTT):** hold the big **HOLD TO TALK** button or **Spacebar**, speak a clearance (`American four twenty-one, turn left heading two seven zero`). Live transcript appears on screen; the pilot reads back with the existing TTS. Uses the free **Web Speech API** in Chrome/Edge. If the mic is missing or denied, tap or type still work. (In-browser Whisper was evaluated and deferred — see below.)

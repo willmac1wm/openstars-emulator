@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { GATE_RADIUS } from '../constants';
-import { buildArcadeRound, planToInitialScenario, ARCADE_STAGGER_MS } from './arcade';
+import { buildArcadeRound, buildSixtySecondRound, planToInitialScenario, ARCADE_STAGGER_MS } from './arcade';
 import { buildLocalScenario } from './localScenario';
 import {
   distFromCenter,
+  distanceToGateNm,
   isEdgeSpawn,
   isHeadingInbound,
-  SPAWN_EDGE_MIN,
   SPAWN_SEP_PX,
   turnToGateDeg,
 } from './spawnTraffic';
@@ -44,26 +44,44 @@ function assertFleetOk(aircraft: { x: number; y: number; heading: number; destin
   }
 }
 
+/**
+ * Expo/arcade spawns (Nov 2026 crossing-time fix): inside the ring, near
+ * the destination gate fix — NOT on the outer ring like lesson spawns.
+ */
+function assertExpoFleetOk(aircraft: { x: number; y: number; heading: number; destination: string; callsign: string }[], label: string) {
+  expect(aircraft.length, label).toBeGreaterThan(0);
+  for (const ac of aircraft) {
+    expect(distFromCenter(ac.x, ac.y), `${label} ${ac.callsign} inside ring`).toBeLessThan(GATE_RADIUS);
+    const d = distanceToGateNm(ac) ?? Infinity;
+    expect(d, `${label} ${ac.callsign} near gate`).toBeLessThanOrEqual(20);
+    expect(d, `${label} ${ac.callsign} clear of gate`).toBeGreaterThanOrEqual(6);
+    expect(turnToGateDeg(ac), `${label} ${ac.callsign} turn to gate`).toBeLessThanOrEqual(90);
+  }
+  for (let i = 0; i < aircraft.length; i++) {
+    for (let j = i + 1; j < aircraft.length; j++) {
+      const d = Math.hypot(aircraft[i].x - aircraft[j].x, aircraft[i].y - aircraft[j].y);
+      expect(d, `${label} sep ${aircraft[i].callsign}-${aircraft[j].callsign}`).toBeGreaterThanOrEqual(SPAWN_SEP_PX - 1);
+    }
+  }
+}
+
 describe('spawn traffic — edge inbound', () => {
-  it('arcade initial wave is a single edge inbound aircraft; stagger delay is ~12s', () => {
+  it('arcade initial wave is a single near-gate aircraft; stagger delay is ~12s', () => {
     const plan = buildArcadeRound('expo-booth');
     expect(plan.waveAtMs[1]).toBe(ARCADE_STAGGER_MS);
     expect(plan.waveAtMs[1]).toBeGreaterThanOrEqual(10_000);
     expect(plan.waveAtMs[1]).toBeLessThanOrEqual(15_000);
     const initial = planToInitialScenario(plan).aircraft;
     expect(initial).toHaveLength(1);
-    assertFleetOk(initial, 'arcade-initial');
+    assertExpoFleetOk(initial, 'arcade-initial');
   });
 
-  it('every arcade wave for many seeds is edge + inbound + separated', () => {
+  it('every arcade wave for many seeds is near its gate + inside the ring + separated', () => {
     for (const seed of SEEDS) {
       const plan = buildArcadeRound(seed);
-      const all = plan.waves.flat();
-      assertFleetOk(all, `arcade:${seed}`);
-      // Nothing in the middle
-      for (const ac of all) {
-        expect(distFromCenter(ac.x, ac.y)).toBeGreaterThanOrEqual(SPAWN_EDGE_MIN - 5);
-      }
+      assertExpoFleetOk(plan.waves.flat(), `arcade:${seed}`);
+      const sixty = buildSixtySecondRound(seed);
+      assertExpoFleetOk(sixty.waves.flat(), `sixty:${seed}`);
     }
   });
 
@@ -72,6 +90,19 @@ describe('spawn traffic — edge inbound', () => {
       for (const level of ['Easy', 'Medium', 'Hard', 'Expo'] as const) {
         const scenario = buildLocalScenario(level, seed);
         assertFleetOk(scenario.aircraft, `${level}:${seed}`);
+      }
+    }
+  });
+
+  it('lesson spawns are still far from their gates (long realistic transit, untimed)', () => {
+    // Deliberately NOT changed by the Expo fix: a lesson aircraft still has
+    // ~75 NM to fly, i.e. ~19–24 min wall at 1x and 200–250 kt. Lessons end
+    // when all aircraft resolve, so there is no timer to beat.
+    for (const seed of SEEDS) {
+      const scenario = buildLocalScenario('Easy', seed);
+      for (const ac of scenario.aircraft) {
+        const d = distanceToGateNm(ac) ?? 0;
+        expect(d, `${seed} ${ac.callsign} lesson distance to gate`).toBeGreaterThanOrEqual(70);
       }
     }
   });

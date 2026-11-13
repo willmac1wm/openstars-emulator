@@ -1,7 +1,10 @@
 import { Aircraft, GameScenario } from '../types';
-import { GATE_RADIUS } from '../constants';
 import { createSeededRandom, seedFromLabel } from './seededRandom';
-import { placeInboundAircraft, polarPos } from './spawnTraffic';
+import {
+  EXPO_SIXTY_SPAWN_DISTANCE_NM,
+  EXPO_SPAWN_DISTANCE_NM,
+  placeExpoAircraft,
+} from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
 /** 60-Second Challenge: one minute, escalating waves, no tutorial needed. */
@@ -10,7 +13,14 @@ export const ATTRACT_IDLE_MS = 60 * 1000;
 /** Second plane of the opening pair arrives after this delay. */
 export const ARCADE_STAGGER_MS = 12_000;
 
-export type CurveballKind = 'nordo' | 'goaround';
+/**
+ * The only curveball: NORDO (no radio). There is no runway in this game —
+ * aircraft are vectored to exit gates, they do not land — so a go-around
+ * makes no sense (removed Nov 2026 on William's call: "What are they going
+ * around? There's no runway."). The NORDO flies itself out on a straight
+ * heading; the player vectors everyone else around the silent target.
+ */
+export type CurveballKind = 'nordo';
 
 export interface ArcadeCurveball {
   kind: CurveballKind;
@@ -31,9 +41,29 @@ export interface ArcadeRoundPlan {
 }
 
 export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
+  return buildArcadeRoundPlan(seedLabel, {
+    name: 'Expo Arcade Shift',
+    durationMs: ARCADE_DURATION_MS,
+    distanceNm: EXPO_SPAWN_DISTANCE_NM,
+    waveAtMs: [0, ARCADE_STAGGER_MS, 55_000, 105_000],
+    waveCount: 4,
+    curveballAtMs: undefined, // NORDO at 70s (5-min) / 40s (60s)
+  });
+}
+
+/** Shared builder for the 5-min and 60-second variants of the same traffic. */
+function buildArcadeRoundPlan(
+  seedLabel: string,
+  opts: {
+    name: string;
+    durationMs: number;
+    distanceNm: number;
+    waveAtMs: number[];
+    waveCount: number;
+    curveballAtMs?: number;
+  },
+): ArcadeRoundPlan {
   const random = createSeededRandom(seedFromLabel(seedLabel));
-  const curveballKinds: CurveballKind[] = ['nordo', 'goaround'];
-  const kind = curveballKinds[Math.floor(random() * curveballKinds.length)];
 
   const placed: Aircraft[] = [];
   const mk = (
@@ -44,10 +74,11 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
     speed: number,
     special?: Aircraft['special'],
   ) => {
-    const ac = placeInboundAircraft(
+    const ac = placeExpoAircraft(
       { callsign, type, destination, altitude, speed, special, idPrefix: 'arcade' },
       placed,
       random,
+      { distanceNm: opts.distanceNm },
     );
     placed.push(ac);
     return ac;
@@ -64,31 +95,23 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
     mk('JBU512', 'A320', 'SOU', 90, 265),
     mk('ASA188', 'B739', 'EAS', 85, 255),
   ];
+  const waves = [wave0, wave1, wave2, wave3].slice(0, opts.waveCount);
 
-  let curveball: ArcadeCurveball;
-  if (kind === 'nordo') {
-    curveball = {
-      kind,
-      atMs: 70_000,
-      callsign: 'N123NR',
-      banner: 'CURVEBALL: NORDO — no radio. Vector others around the silent target',
-    };
-  } else {
-    curveball = {
-      kind,
-      atMs: 80_000,
-      callsign: 'AAL421',
-      banner: 'CURVEBALL: GO AROUND — American four twenty-one, break off the gate',
-      pilotLine: 'Going around, American four twenty-one',
-    };
-  }
+  // The only curveball is NORDO: a silent C172 that flies itself straight
+  // to the NOR gate. There is no go-around — there is no runway.
+  const curveball: ArcadeCurveball = {
+    kind: 'nordo',
+    atMs: opts.curveballAtMs ?? 70_000,
+    callsign: 'N123NR',
+    banner: 'CURVEBALL: NORDO — no radio. Vector others around the silent target',
+  };
 
   return {
-    name: 'Expo Arcade Shift',
+    name: opts.name,
     seedLabel,
-    durationMs: ARCADE_DURATION_MS,
-    waveAtMs: [0, ARCADE_STAGGER_MS, 55_000, 105_000],
-    waves: [wave0, wave1, wave2, wave3],
+    durationMs: opts.durationMs,
+    waveAtMs: opts.waveAtMs,
+    waves,
     curveball,
   };
 }
@@ -98,60 +121,49 @@ export function arcadeWaveAircraft(plan: ArcadeRoundPlan, waveIndex: number): Ai
 }
 
 /**
- * 60-Second Challenge: same seeded traffic as a normal arcade round, but
- * only the first three waves fit inside one minute and the curveball lands
- * at 40s. Everything is scheduled strictly before the 60s timer ends.
+ * 60-Second Challenge: closer spawns (10 NM from the fix, ~24 s wall at
+ * 250 kt, 6x) and earlier waves. Wave 2 moved 30 s -> 24 s: at 30 s it had
+ * only 30 s left, so even a perfect 24 s crossing plus reaction could not
+ * score before the 60 s timer ended. At 24 s it has 36 s — crossing plus a
+ * 5 s reaction fits. The curveball still lands at 40 s.
  */
 export function buildSixtySecondRound(seedLabel = 'sixty-1'): ArcadeRoundPlan {
-  const plan = buildArcadeRound(seedLabel);
-  return {
-    ...plan,
+  return buildArcadeRoundPlan(seedLabel, {
     name: '60-Second Challenge',
     durationMs: SIXTY_SECOND_DURATION_MS,
-    waves: plan.waves.slice(0, 3),
-    waveAtMs: [0, ARCADE_STAGGER_MS, 30_000],
-    curveball: { ...plan.curveball, atMs: 40_000 },
-  };
+    distanceNm: EXPO_SIXTY_SPAWN_DISTANCE_NM,
+    waveAtMs: [0, ARCADE_STAGGER_MS, 24_000],
+    waveCount: 3,
+    curveballAtMs: 40_000,
+  });
 }
 
 export function spawnCurveballAircraft(plan: ArcadeRoundPlan): Aircraft | null {
   const { curveball } = plan;
   if (curveball.kind === 'nordo') {
     const random = createSeededRandom(seedFromLabel(`${plan.seedLabel}-nordo`));
-    return placeInboundAircraft(
+    const distanceNm =
+      plan.durationMs === SIXTY_SECOND_DURATION_MS
+        ? EXPO_SIXTY_SPAWN_DISTANCE_NM
+        : EXPO_SPAWN_DISTANCE_NM;
+    return placeExpoAircraft(
       {
         callsign: 'N123NR',
         type: 'C172',
         destination: 'NOR',
-        altitude: 60,
+        // Legal for NOR (70/90): the NORDO flies itself out with no radio,
+        // so it must not eat a wrong-altitude penalty the player cannot prevent.
+        altitude: 70,
         speed: 140,
         special: 'nordo',
         idPrefix: 'arcade',
       },
       [],
       random,
+      { distanceNm, directHeading: true },
     );
   }
   return null;
-}
-
-export function applyGoAround(aircraft: Aircraft[]): Aircraft[] {
-  return aircraft.map((ac) => {
-    if (ac.callsign !== 'AAL421' || ac.status === 'HANDOFF') return ac;
-    // Re-enter from the east outer ring, heading westbound inbound — still solvable.
-    const p = polarPos(90, GATE_RADIUS + 60);
-    return {
-      ...ac,
-      x: p.x,
-      y: p.y,
-      heading: 270,
-      targetHeading: 270,
-      status: 'INBOUND',
-      destination: 'WES',
-      special: 'goaround',
-      handoffResult: undefined,
-    };
-  });
 }
 
 export function planToInitialScenario(plan: ArcadeRoundPlan): GameScenario {
@@ -163,12 +175,6 @@ export function planToInitialScenario(plan: ArcadeRoundPlan): GameScenario {
     seedLabel: plan.seedLabel,
     mode: 'expo',
   };
-}
-
-/** JO 7110.65-style short lines for arcade events (template, not LLM). */
-export function curveballPilotPhrase(kind: CurveballKind): string {
-  if (kind === 'nordo') return '';
-  return 'Going around, American four twenty-one';
 }
 
 export function perfectHandoffPilotLine(callsign: string): string {

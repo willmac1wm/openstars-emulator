@@ -6,11 +6,68 @@
 import { Aircraft, AlertLevel } from '../types';
 import { CENTER, GATE_RADIUS, GATES, NM_TO_PX } from '../constants';
 
-/** Just outside the gate ring (scope edge / outer ring). */
+/** Just outside the gate ring (scope edge / outer ring). LESSON modes only. */
 export const SPAWN_EDGE_MIN = GATE_RADIUS + 45;
 export const SPAWN_EDGE_MAX = GATE_RADIUS + 95;
 /** Minimum separation between spawns (~6 NM). */
 export const SPAWN_SEP_PX = 6 * NM_TO_PX;
+
+/**
+ * Expo (arcade) spawn budgets — Nov 2026 crossing-time bug.
+ *
+ * Lesson aircraft spawn on the outer ring opposite their gate and fly
+ * ~75–80 NM to exit (~19–24 min wall at 1x): realistic for training, and
+ * lesson sessions are untimed. Expo rounds are timed (5 min / 60 s at 6x),
+ * so Expo aircraft spawn INSIDE the ring, near their destination gate fix.
+ * Straight-line distance to the fix is the budget:
+ *   16 NM at 250 kt, 6x = ~38 s wall (5-min shift, 90 s budget)
+ *   16 NM at 140 kt, 6x = ~69 s wall (NORDO, 90 s budget)
+ *   10 NM at 250 kt, 6x = ~24 s wall (60-Second Challenge, 45 s budget)
+ */
+export const EXPO_SPAWN_DISTANCE_NM = 16;
+export const EXPO_SIXTY_SPAWN_DISTANCE_NM = 10;
+
+/** Fix (gate exit point) for a destination gate id, or null. */
+export function gateFixFor(destination: string): { x: number; y: number } | null {
+  return GATES.find((g) => g.id === destination)?.fix ?? null;
+}
+
+/** Straight-line distance (NM) from an aircraft to its destination gate fix. */
+export function distanceToGateNm(
+  ac: Pick<Aircraft, 'x' | 'y' | 'destination'>,
+): number | null {
+  const fix = gateFixFor(ac.destination);
+  if (!fix) return null;
+  return Math.hypot(fix.x - ac.x, fix.y - ac.y) / NM_TO_PX;
+}
+
+/**
+ * Wall-clock seconds to fly distanceNm at speedKt with the sim running at
+ * timeScale x. Straight-line, no turns — the minimum possible crossing time.
+ */
+export function crossingTimeWallSeconds(
+  distanceNm: number,
+  speedKt: number,
+  timeScale: number,
+): number {
+  if (speedKt <= 0 || timeScale <= 0) return Infinity;
+  return (distanceNm / speedKt) * 3600 / timeScale;
+}
+
+/** Bearing (deg, 0 = north, clockwise) of the vector from `from` to `to`. */
+export function bearingTo(from: { x: number; y: number }, to: { x: number; y: number }): number {
+  return normalizeHeading((Math.atan2(to.x - from.x, -(to.y - from.y)) * 180) / Math.PI);
+}
+
+/** Point `distPx` from `from` along bearing `bearingDeg`. */
+export function pointAlongBearing(
+  from: { x: number; y: number },
+  bearingDeg: number,
+  distPx: number,
+): { x: number; y: number } {
+  const rad = (bearingDeg * Math.PI) / 180;
+  return { x: from.x + distPx * Math.sin(rad), y: from.y - distPx * Math.cos(rad) };
+}
 
 const GATE_MID: Record<string, number> = Object.fromEntries(
   GATES.map((g) => [g.id, (g.startAngle + g.endAngle) / 2]),
@@ -101,14 +158,18 @@ export function placeInboundAircraft(
     chosen = { ...p, heading: inboundHeading(angle, 0), angle, dist };
   }
 
+  return makeAircraft(spec, chosen.x, chosen.y, chosen.heading, chosen.angle);
+}
+
+function makeAircraft(spec: SpawnSpec, x: number, y: number, heading: number, angle: number): Aircraft {
   return {
-    id: `${spec.idPrefix || 'spawn'}-${spec.callsign}-${Math.round(chosen.angle)}`,
+    id: `${spec.idPrefix || 'spawn'}-${spec.callsign}-${Math.round(angle)}`,
     callsign: spec.callsign,
     type: spec.type,
-    x: chosen.x,
-    y: chosen.y,
-    heading: chosen.heading,
-    targetHeading: chosen.heading,
+    x,
+    y,
+    heading,
+    targetHeading: heading,
     altitude: spec.altitude,
     targetAltitude: spec.altitude,
     speed: spec.speed,
@@ -123,6 +184,87 @@ export function placeInboundAircraft(
     dataBlockDir: 45,
     special: spec.special,
   };
+}
+
+/**
+ * One Expo re-entry candidate near the destination gate fix: `distanceNm`
+ * from the fix, on the centre side of it (offset angle off the fix→centre
+ * line), heading toward the fix but rotated toward the centre so a vector
+ * is still required. Returns the point, its heading, and the bearing from
+ * the point to the fix.
+ */
+export function expoSpawnCandidate(
+  destination: string,
+  distanceNm: number,
+  offsetDeg: number,
+  directHeading: boolean,
+): { x: number; y: number; heading: number; bearingToFix: number } | null {
+  const gate = GATES.find((g) => g.id === destination);
+  if (!gate) return null;
+  const mid = (gate.startAngle + gate.endAngle) / 2;
+  const distPx = distanceNm * NM_TO_PX;
+  // Spawn on a circle around the fix, on the centre side of it.
+  const spawnBearing = normalizeHeading(mid + 180 + offsetDeg);
+  const p = pointAlongBearing(gate.fix, spawnBearing, distPx);
+  const bearingToFix = bearingTo(p, gate.fix);
+  const centreBearing = bearingTo(p, { x: CENTER, y: CENTER });
+  let heading = bearingToFix;
+  if (!directHeading) {
+    // Rotate the fix bearing toward the centre bearing by 30–50°: the
+    // aircraft still needs a vector, but it drifts inward, not out the gate.
+    let diff = centreBearing - bearingToFix;
+    while (diff <= -180) diff += 360;
+    while (diff > 180) diff -= 360;
+    const turn = Math.max(30, Math.min(50, Math.abs(diff))) * Math.sign(diff || 1);
+    heading = normalizeHeading(bearingToFix + turn);
+  }
+  return { ...p, heading, bearingToFix };
+}
+
+export interface ExpoSpawnOptions {
+  /** Straight-line distance (NM) from the destination gate fix. */
+  distanceNm: number;
+  /** True for unvectorable aircraft (NORDO): heading points straight at the fix. */
+  directHeading?: boolean;
+}
+
+/**
+ * Place one Expo/arcade aircraft INSIDE the ring, near its destination gate
+ * fix — the timed-round counterpart to placeInboundAircraft (outer ring,
+ * lesson modes). The player must still vector it: the initial heading is
+ * 30–50° off the fix bearing, and the spawn is 6+ NM clear of the fix.
+ * Spawning inside the ring matters mechanically: HANDOFF only fires from
+ * ACTIVE, and an aircraft becomes ACTIVE the first tick it is inside the
+ * ring — an outside-ring spawn heading straight out would never activate.
+ */
+export function placeExpoAircraft(
+  spec: SpawnSpec,
+  existing: Aircraft[],
+  random: () => number,
+  options: ExpoSpawnOptions,
+): Aircraft {
+  const gate = GATES.find((g) => g.id === spec.destination);
+  const mid = gate ? (gate.startAngle + gate.endAngle) / 2 : 0;
+  let chosen: { x: number; y: number; heading: number } | null = null;
+
+  for (let attempt = 0; attempt < 28 && !chosen; attempt++) {
+    const offset = options.directHeading ? 0 : (random() - 0.5) * 60; // ±30° off the fix→centre line
+    const cand = expoSpawnCandidate(spec.destination, options.distanceNm, offset, !!options.directHeading);
+    if (!cand) break;
+    const distC = distFromCenter(cand.x, cand.y);
+    if (distC >= GATE_RADIUS - 5 || distC < 100) continue;
+    const crowded = existing.some((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y) < SPAWN_SEP_PX);
+    if (crowded) continue;
+    chosen = cand;
+  }
+
+  if (!chosen) {
+    const cand = expoSpawnCandidate(spec.destination, options.distanceNm, 0, !!options.directHeading);
+    chosen = cand ?? { x: CENTER, y: CENTER - 200, heading: mid };
+  }
+
+  const angle = bearingTo({ x: CENTER, y: CENTER }, { x: chosen.x, y: chosen.y });
+  return makeAircraft(spec, chosen.x, chosen.y, chosen.heading, angle);
 }
 
 /** Assert helpers for tests — heading points roughly toward center. */

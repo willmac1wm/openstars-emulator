@@ -52,11 +52,9 @@ import { evaluateExit } from './services/exitScoring';
 import {
   ARCADE_DURATION_MS,
   ATTRACT_IDLE_MS,
-  applyGoAround,
   arcadeWaveAircraft,
   buildArcadeRound,
   buildSixtySecondRound,
-  curveballPilotPhrase,
   planToInitialScenario,
   perfectHandoffPilotLine,
   spawnCurveballAircraft,
@@ -452,25 +450,19 @@ const App: React.FC = () => {
       waveTimersRef.current.push(timer);
     });
 
+    // The only curveball is NORDO: a silent C172 joins the scope. It flies
+    // itself straight to the NOR gate; the player vectors everyone else
+    // around it. (No go-around: there is no runway in this game.)
     curveballTimerRef.current = window.setTimeout(() => {
       setArcadeBanner(plan.curveball.banner);
       addLog(plan.curveball.banner, 'system');
-      if (plan.curveball.kind === 'goaround') {
-        setAircraft((prev) => applyGoAround(prev));
-      } else {
-        const spawned = spawnCurveballAircraft(plan);
-        if (spawned) {
-          // Spawn joins the scope UNSELECTED: auto-selecting it used to
-          // discard a dialled-but-unissued clearance for another aircraft
-          // (and the tap pad resets on selection change). The player taps
-          // the NORDO target if they want it.
-          setAircraft((prev) => [...prev, { ...spawned, isSelected: false }]);
-        }
-      }
-      const line = curveballPilotPhrase(plan.curveball.kind);
-      if (line) {
-        addLog(line, 'pilot');
-        speakPilot(line, plan.curveball.callsign || 'AAL421');
+      const spawned = spawnCurveballAircraft(plan);
+      if (spawned) {
+        // Spawn joins the scope UNSELECTED: auto-selecting it used to
+        // discard a dialled-but-unissued clearance for another aircraft
+        // (and the tap pad resets on selection change). The player taps
+        // the NORDO target if they want it.
+        setAircraft((prev) => [...prev, { ...spawned, isSelected: false }]);
       }
     }, plan.curveball.atMs);
 

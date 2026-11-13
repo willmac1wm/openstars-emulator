@@ -133,7 +133,7 @@ export interface SimAircraft {
   overshotLocalizer: boolean;
   illegalIntercept: boolean;
   destinationGate?: string;
-  special?: 'medevac' | 'nordo' | 'goaround';
+  special?: 'medevac' | 'nordo';
 }
 
 export interface ScoreEvent {

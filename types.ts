@@ -47,7 +47,7 @@ export interface Aircraft {
   dataBlockDir: number; // Angle in degrees for the leader line (0-360)
   handoffResult?: string; // Text to display after handoff (e.g. "CLEAN", "WRONG ALT")
   /** Arcade curveball flags */
-  special?: 'medevac' | 'nordo' | 'goaround';
+  special?: 'medevac' | 'nordo';
 }
 
 export type ScenarioDifficulty = 'Expo' | 'Easy' | 'Medium' | 'Hard';
