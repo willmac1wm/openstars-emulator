@@ -85,24 +85,40 @@ describe('spawn traffic — edge inbound', () => {
     }
   });
 
-  it('Trainee / Controller / Veteran / Expo local scenarios spawn at the edge inbound', () => {
+  it('Trainee / Controller / Veteran / Expo local scenarios spawn near their gates, inside the ring', () => {
+    // Nov 2026 lesson-pacing fix: lesson scenarios no longer spawn at the
+    // outer-ring edge — they use the near-gate placer (24 NM from the fix),
+    // like Expo (16/10 NM). Inside-ring + near-gate + a turn still required.
     for (const seed of SEEDS) {
       for (const level of ['Easy', 'Medium', 'Hard', 'Expo'] as const) {
         const scenario = buildLocalScenario(level, seed);
-        assertFleetOk(scenario.aircraft, `${level}:${seed}`);
+        for (const ac of scenario.aircraft) {
+          expect(distFromCenter(ac.x, ac.y), `${level}:${seed} ${ac.callsign} inside ring`).toBeLessThan(GATE_RADIUS);
+          const d = distanceToGateNm(ac) ?? Infinity;
+          expect(d, `${level}:${seed} ${ac.callsign} near gate`).toBeLessThanOrEqual(24.5);
+          expect(d, `${level}:${seed} ${ac.callsign} clear of gate`).toBeGreaterThanOrEqual(6);
+          expect(turnToGateDeg(ac), `${level}:${seed} ${ac.callsign} turn to gate`).toBeLessThanOrEqual(90);
+        }
+        for (let i = 0; i < scenario.aircraft.length; i++) {
+          for (let j = i + 1; j < scenario.aircraft.length; j++) {
+            const d = Math.hypot(scenario.aircraft[i].x - scenario.aircraft[j].x, scenario.aircraft[i].y - scenario.aircraft[j].y);
+            expect(d, `${level}:${seed} sep`).toBeGreaterThanOrEqual(SPAWN_SEP_PX - 1);
+          }
+        }
       }
     }
   });
 
-  it('lesson spawns are still far from their gates (long realistic transit, untimed)', () => {
-    // Deliberately NOT changed by the Expo fix: a lesson aircraft still has
-    // ~75 NM to fly, i.e. ~19–24 min wall at 1x and 200–250 kt. Lessons end
-    // when all aircraft resolve, so there is no timer to beat.
+  it('lesson spawns are near their gates (24 NM), not the old ~75 NM outer-ring transit', () => {
+    // Deliberately changed by the Nov 2026 lesson-pacing fix: a lesson
+    // aircraft used to have ~75 NM to fly (~19–24 min wall at 1x). It now
+    // spawns 24 NM from its gate fix and exits within ~5 min at the 2x
+    // lesson default (see lessonCrossing.test.ts for the full budgets).
     for (const seed of SEEDS) {
       const scenario = buildLocalScenario('Easy', seed);
       for (const ac of scenario.aircraft) {
         const d = distanceToGateNm(ac) ?? 0;
-        expect(d, `${seed} ${ac.callsign} lesson distance to gate`).toBeGreaterThanOrEqual(70);
+        expect(d, `${seed} ${ac.callsign} lesson distance to gate`).toBeCloseTo(24, 0);
       }
     }
   });

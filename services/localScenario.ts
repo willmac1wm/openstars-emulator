@@ -1,7 +1,7 @@
 import { Aircraft, GameScenario, ScenarioDifficulty } from '../types';
 import { createSeededRandom } from './seededRandom';
 import { DEFAULT_SCENARIO_SEEDS, resolveSeedInput } from './scenarioSeed';
-import { placeInboundAircraft } from './spawnTraffic';
+import { LESSON_SPAWN_DISTANCE_NM, placeNearGateAircraft } from './spawnTraffic';
 
 export { DEFAULT_SCENARIO_SEEDS };
 
@@ -39,7 +39,12 @@ function normalizeDifficulty(difficulty: string): ScenarioDifficulty {
 
 /**
  * Built-in traffic for the free web demo. No API key and no network.
- * All aircraft spawn on the outer ring, heading inbound, with solvable gates.
+ * Lesson aircraft spawn near their gate fix (LESSON_SPAWN_DISTANCE_NM out,
+ * heading 30–50° off the fix bearing), so a correctly vectored aircraft
+ * exits within ~5 min wall at the lesson default 2x — see the budget note
+ * on LESSON_SPAWN_DISTANCE_NM in spawnTraffic.ts. The old outer-ring spawn
+ * (~75 NM out, ~18–24 min wall at 1x) made a Trainee round drag on far
+ * longer than a class period; it is no longer used here.
  */
 export function buildLocalScenario(difficulty: string, seedLabel?: string | number): GameScenario {
   const level = normalizeDifficulty(difficulty);
@@ -53,7 +58,7 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string | numb
     const altitude = 60 + ((index * 17) % 40);
     const speed = 200 + ((index * 13) % 50);
     aircraft.push(
-      placeInboundAircraft(
+      placeNearGateAircraft(
         {
           callsign: fleet.callsign,
           type: fleet.type,
@@ -64,6 +69,7 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string | numb
         },
         aircraft,
         random,
+        { distanceNm: LESSON_SPAWN_DISTANCE_NM },
       ),
     );
   }
@@ -82,7 +88,7 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string | numb
     difficulty: level,
     description:
       level === 'Expo'
-        ? 'Three aircraft from the edge. Clear them through their glowing gates.'
+        ? 'Three aircraft near their gates. Clear them through their glowing gates.'
         : `Seeded offline scenario (${seed.display}).`,
     aircraft,
     seedLabel: seed.display,

@@ -15,6 +15,7 @@ import {
   turnToGateDeg,
 } from './spawnTraffic';
 import type { Aircraft } from '../types';
+import { simulateExitWallSec } from './exitSimulation';
 
 /**
  * Expo crossing-time budgets (Nov 2026 bug: Expo planes could not cross the
@@ -41,50 +42,6 @@ function distToGateNm(ac: Pick<Aircraft, 'x' | 'y' | 'destination'>): number {
 /** Straight-line wall-clock seconds to cover distNm at speedKt, timeScale x. */
 function crossingWallSec(distNm: number, speedKt: number, timeScale = 6): number {
   return crossingTimeWallSeconds(distNm, speedKt, timeScale);
-}
-
-/**
- * Fly an aircraft with App-like physics (3°/s sim turn rate, constant
- * speed) and return wall-clock seconds until it hands off (crosses back
- * outside the gate ring after being inside it). The "player" holds the
- * initial heading for `reactionWallSec`, then issues the direct bearing to
- * the fix once and never touches it again. NORDO: no command at all.
- * This is a sanity check on top of the straight-line budgets above — it
- * proves a correctly vectored aircraft really does exit in time, turns
- * included.
- */
-function simulateExitWallSec(
-  ac: Aircraft,
-  opts: { reactionWallSec?: number; timeScale?: number } = {},
-): number {
-  const timeScale = opts.timeScale ?? 6;
-  const reactionSimSec = (opts.reactionWallSec ?? 5) * timeScale;
-  const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
-  const fix = GATES.find((g) => g.id === ac.destination)!.fix;
-  const target = bearingTo({ x: ac.x, y: ac.y }, fix);
-  let x = ac.x;
-  let y = ac.y;
-  let heading = ac.heading;
-  let active = distFromCenter(x, y) <= GATE_RADIUS;
-  const dt = 0.25; // sim seconds per step
-  const maxSimSec = 600;
-  for (let t = 0; t < maxSimSec; t += dt) {
-    const commanded = t >= reactionSimSec ? target : heading;
-    let diff = commanded - heading;
-    while (diff <= -180) diff += 360;
-    while (diff > 180) diff -= 360;
-    const turn = 3.0 * dt;
-    if (Math.abs(diff) <= turn) heading = commanded;
-    else heading += Math.sign(diff) * turn;
-    heading = ((heading % 360) + 360) % 360;
-    const move = ((ac.speed * NM_TO_PX) / 3600) * dt;
-    x += Math.cos(toRad(heading)) * move;
-    y += Math.sin(toRad(heading)) * move;
-    const d = distFromCenter(x, y);
-    if (!active && d <= GATE_RADIUS) active = true;
-    if (active && d > GATE_RADIUS) return t / timeScale;
-  }
-  return Infinity;
 }
 
 const SEEDS = ['arcade-1', 'expo-booth', 'spawn-a', 'spawn-b', 'sixty-1', 'test-7'];

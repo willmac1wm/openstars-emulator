@@ -1,7 +1,14 @@
 /**
  * Shared spawn rules for Expo arcade and classroom scenarios.
- * Aircraft always enter from the outer ring, heading inbound, with a solvable
- * path to their assigned gate — never mid-scope, never already past the gate.
+ *
+ * Lesson aircraft used to spawn on the outer ring, heading inbound, with a
+ * solvable path to their assigned gate — never mid-scope, never already
+ * past the gate. That changed in Nov 2026 (lesson pacing): the outer-ring
+ * spawn is ~75 NM from the gate, ~18–24 min wall at 1x, so a Trainee round
+ * dragged on far longer than a class period. Lesson aircraft now spawn
+ * near their gate fix, like Expo (see LESSON_SPAWN_DISTANCE_NM below).
+ * placeInboundAircraft (outer ring) is kept for the tutorial scenario
+ * helpers and any caller that explicitly wants an edge spawn.
  */
 import { Aircraft, AlertLevel } from '../types';
 import { CENTER, GATE_RADIUS, GATES, NM_TO_PX } from '../constants';
@@ -26,6 +33,25 @@ export const SPAWN_SEP_PX = 6 * NM_TO_PX;
  */
 export const EXPO_SPAWN_DISTANCE_NM = 16;
 export const EXPO_SIXTY_SPAWN_DISTANCE_NM = 10;
+
+/**
+ * Lesson spawn budget — Nov 2026 lesson-pacing fix (Option C: closer spawn
+ * + faster default speed, instead of either alone).
+ *
+ * Lesson aircraft spawn 24 NM from their destination gate fix, heading
+ * 30–50° off the fix bearing (same near-gate placer as Expo, so a vector
+ * is still required and separation conflicts are still possible), and
+ * lesson modes now default to 2x (DEFAULT_TIME_SCALE).
+ *   24 NM at 200 kt, 2x = 216 s wall straight-line (slowest lesson speed)
+ *   24 NM at 250 kt, 2x = 173 s wall (fastest lesson speed)
+ * Both are inside the ~5 min per-aircraft budget with turn margin; at 1x
+ * the same crossing is 346–432 s, still finishable. All lesson aircraft
+ * spawn at t=0, so a Trainee round (4) resolves in ~4–5 min of flying
+ * plus thinking time (~6–8 min total), Controller (8) in ~10 min.
+ * The old outer-ring spawn was ~75 NM: 1080–1350 s wall at 1x.
+ */
+export const LESSON_SPAWN_DISTANCE_NM = 24;
+export const LESSON_BUDGET_WALL_SEC = 300;
 
 /** Fix (gate exit point) for a destination gate id, or null. */
 export function gateFixFor(destination: string): { x: number; y: number } | null {
@@ -229,15 +255,16 @@ export interface ExpoSpawnOptions {
 }
 
 /**
- * Place one Expo/arcade aircraft INSIDE the ring, near its destination gate
- * fix — the timed-round counterpart to placeInboundAircraft (outer ring,
- * lesson modes). The player must still vector it: the initial heading is
- * 30–50° off the fix bearing, and the spawn is 6+ NM clear of the fix.
+ * Place one aircraft INSIDE the ring, near its destination gate fix — the
+ * near-gate counterpart to placeInboundAircraft (outer ring). Used by Expo
+ * (16 / 10 NM) and, since Nov 2026, by lesson modes (24 NM). The player
+ * must still vector it: the initial heading is 30–50° off the fix bearing,
+ * and the spawn is 6+ NM clear of the fix.
  * Spawning inside the ring matters mechanically: HANDOFF only fires from
  * ACTIVE, and an aircraft becomes ACTIVE the first tick it is inside the
  * ring — an outside-ring spawn heading straight out would never activate.
  */
-export function placeExpoAircraft(
+export function placeNearGateAircraft(
   spec: SpawnSpec,
   existing: Aircraft[],
   random: () => number,
@@ -259,13 +286,60 @@ export function placeExpoAircraft(
   }
 
   if (!chosen) {
-    const cand = expoSpawnCandidate(spec.destination, options.distanceNm, 0, !!options.directHeading);
-    chosen = cand ?? { x: CENTER, y: CENTER - 200, heading: mid };
+    // Blind offset-0 fallback used to ignore separation entirely: with
+    // several aircraft near one gate, all 28 random candidates can be
+    // blocked and the fallback would place the new aircraft on top of an
+    // existing one (Nov 2026: JBU512 spawned 3.7 NM from DAL456). Sweep
+    // systematically instead: every offset around the fix, then nearby
+    // distances, and take the first spot that is inside the ring and 6+ NM
+    // clear of every other aircraft. Only if nothing passes, take the spot
+    // that maximises the minimum separation (best effort, still reported
+    // by the separation tests if it falls short).
+    const tryCandidate = (
+      offsetDeg: number,
+      distNm: number,
+    ): { x: number; y: number; heading: number } | null => {
+      const cand = expoSpawnCandidate(spec.destination, distNm, offsetDeg, !!options.directHeading);
+      if (!cand) return null;
+      const distC = distFromCenter(cand.x, cand.y);
+      if (distC >= GATE_RADIUS - 5 || distC < 100) return null;
+      const crowded = existing.some((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y) < SPAWN_SEP_PX);
+      return crowded ? null : cand;
+    };
+    for (let offset = -180; offset <= 180 && !chosen; offset += 5) {
+      chosen = tryCandidate(offset, options.distanceNm);
+    }
+    for (const delta of [-4, 4, -8, 8] as const) {
+      for (let offset = -180; offset <= 180 && !chosen; offset += 5) {
+        chosen = tryCandidate(offset, options.distanceNm + delta);
+      }
+    }
+    if (!chosen) {
+      let best: { x: number; y: number; heading: number } | null = null;
+      let bestMin = -1;
+      for (let offset = -180; offset < 180; offset += 5) {
+        const cand = expoSpawnCandidate(spec.destination, options.distanceNm, offset, !!options.directHeading);
+        if (!cand) continue;
+        const distC = distFromCenter(cand.x, cand.y);
+        if (distC >= GATE_RADIUS - 5 || distC < 100) continue;
+        const minSep = existing.length
+          ? Math.min(...existing.map((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y)))
+          : Infinity;
+        if (minSep > bestMin) {
+          bestMin = minSep;
+          best = cand;
+        }
+      }
+      chosen = best ?? expoSpawnCandidate(spec.destination, options.distanceNm, 0, !!options.directHeading) ?? { x: CENTER, y: CENTER - 200, heading: mid };
+    }
   }
 
   const angle = bearingTo({ x: CENTER, y: CENTER }, { x: chosen.x, y: chosen.y });
   return makeAircraft(spec, chosen.x, chosen.y, chosen.heading, angle);
 }
+
+/** Backwards-compatible alias — the function was named for Expo before lessons used it too. */
+export const placeExpoAircraft = placeNearGateAircraft;
 
 /** Assert helpers for tests — heading points roughly toward center. */
 export function isHeadingInbound(ac: Pick<Aircraft, 'x' | 'y' | 'heading'>, maxDeg = 40): boolean {

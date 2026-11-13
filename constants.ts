@@ -8,7 +8,7 @@ export const NM_3_PX = 3 * NM_TO_PX; // 30px
 export const NM_4_PX = 4 * NM_TO_PX; // 40px
 export const UPDATE_INTERVAL = 1000; // Update logic every 1s (simulated radar sweep)
 export const SWEEP_DURATION = 4000; // 4 seconds for a full 360 sweep
-export const DEFAULT_TIME_SCALE = 1.0; // 1.0x — lesson modes start at real time; Expo sets its own 6x
+export const DEFAULT_TIME_SCALE = 2.0; // 2.0x — lesson default since Nov 2026 (was 1.0x: a 75 NM outer-ring crossing took ~18 min wall). 1x is still selectable in the speed control; Expo sets its own 6x, tutorial 0x.
 export const GATE_RADIUS = 350; // Distance from center to gates
 
 export const SIM_SPEED_OPTIONS = [1, 2, 4, 6, 8, 10];

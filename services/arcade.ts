@@ -3,7 +3,7 @@ import { createSeededRandom, seedFromLabel } from './seededRandom';
 import {
   EXPO_SIXTY_SPAWN_DISTANCE_NM,
   EXPO_SPAWN_DISTANCE_NM,
-  placeExpoAircraft,
+  placeNearGateAircraft,
 } from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
@@ -74,7 +74,7 @@ function buildArcadeRoundPlan(
     speed: number,
     special?: Aircraft['special'],
   ) => {
-    const ac = placeExpoAircraft(
+    const ac = placeNearGateAircraft(
       { callsign, type, destination, altitude, speed, special, idPrefix: 'arcade' },
       placed,
       random,
@@ -146,7 +146,7 @@ export function spawnCurveballAircraft(plan: ArcadeRoundPlan): Aircraft | null {
       plan.durationMs === SIXTY_SECOND_DURATION_MS
         ? EXPO_SIXTY_SPAWN_DISTANCE_NM
         : EXPO_SPAWN_DISTANCE_NM;
-    return placeExpoAircraft(
+    return placeNearGateAircraft(
       {
         callsign: 'N123NR',
         type: 'C172',
