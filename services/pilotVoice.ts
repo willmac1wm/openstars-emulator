@@ -7,6 +7,12 @@ import {
   requestPersistentStorage,
 } from './voiceAssets';
 import { notifyPilotSpeechActive } from './soundEffects';
+import {
+  NATURAL_SLOW_FALLBACK,
+  NATURAL_VOICE_FAILED,
+  NO_SPEECH_VOICE,
+  READBACK_AUDIO_FAILED,
+} from './voiceErrors';
 // Deep package exports hide these files. Importing the installed paths lets Vite
 // emit them as same-origin assets instead of fetching the runtime from a CDN.
 import ortWasm from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
@@ -95,6 +101,29 @@ let preloadStarted = false;
 let loadStartedAt = 0;
 let kokoroDevice: VoiceDevice = 'none';
 
+/**
+ * TTS failure notices for the UI (comm log). speakPilot is fire-and-forget
+ * with no error channel, so without this a failed readback vanished silently.
+ * App subscribes and logs each notice once; repeats of the same message
+ * within 10s are dropped so a bad voice setup does not flood COMM 1.
+ */
+let lastAudioNotice = '';
+let lastAudioNoticeAt = 0;
+const audioNoticeListeners = new Set<(message: string) => void>();
+
+export function subscribeAudioNotice(listener: (message: string) => void): () => void {
+  audioNoticeListeners.add(listener);
+  return () => audioNoticeListeners.delete(listener);
+}
+
+export function emitAudioNotice(message: string): void {
+  const now = Date.now();
+  if (message === lastAudioNotice && now - lastAudioNoticeAt < 10_000) return;
+  lastAudioNotice = message;
+  lastAudioNoticeAt = now;
+  audioNoticeListeners.forEach((listener) => listener(message));
+}
+
 interface Utterance {
   text: string;
   callsign: string;
@@ -127,7 +156,7 @@ export function subscribeVoiceRuntime(listener: () => void): () => void {
 export function voiceStatusLabel(rt: VoiceRuntime = runtime): string {
   const settings = typeof getVoiceSettings === 'function' ? getVoiceSettings() : null;
   if (forceBasic) return 'Using basic voice';
-  if (rt.phase === 'fallback') return 'Using basic voice';
+  if (rt.phase === 'fallback') return 'Natural voices failed — using Fast voice';
   if (rt.phase === 'loading') {
     return `Loading pilot voices… ${Math.round(rt.progress * 100)}%`;
   }
@@ -352,6 +381,10 @@ async function initEngine() {
     kokoro = null;
     useBrowser = true;
     kokoroDevice = 'none';
+    // Only announce when the user actually asked for natural voices;
+    // the Fast-voice default preloads Kokoro in the background and a
+    // failed preload there is an expected, silent fallback.
+    if (getVoiceSettings().naturalVoices) emitAudioNotice(NATURAL_VOICE_FAILED);
     const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - loadStartedAt;
     setRuntime({
       phase: 'fallback',
@@ -665,6 +698,9 @@ async function drain() {
       }
       const played = await speakNeuralChunked(item, settings);
       if (!played) {
+        // Natural path failed or produced no audio (e.g. suspended
+        // AudioContext) — fall back audibly instead of silently.
+        emitAudioNotice(NATURAL_SLOW_FALLBACK);
         await speakBrowser(item.text, item.callsign, getVoiceSettings());
       }
     }
@@ -684,8 +720,7 @@ async function speakNeuralChunked(item: Utterance, settings: VoiceSettings): Pro
   const cachedFull = phraseCache.get(fullKey);
   if (cachedFull) {
     setRuntime({ lastGenerateMs: 1 });
-    await playSamples(cachedFull.samples, cachedFull.sampleRate, settings);
-    return true;
+    return playSamples(cachedFull.samples, cachedFull.sampleRate, settings);
   }
 
   const chunks = splitReadbackChunks(item.text);
@@ -704,7 +739,10 @@ async function speakNeuralChunked(item: Utterance, settings: VoiceSettings): Pro
         firstAudioAt = Math.max(1, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0));
         setRuntime({ lastGenerateMs: firstAudioAt });
       }
-      await playSamples(samples, sampleRate, settings);
+      // playSamples returning false means nothing audible happened
+      // (no/suspended AudioContext) — fall back to Fast voice, don't
+      // report the readback as spoken.
+      if (!(await playSamples(samples, sampleRate, settings))) return false;
     }
     return true;
   } catch {
@@ -712,9 +750,22 @@ async function speakNeuralChunked(item: Utterance, settings: VoiceSettings): Pro
   }
 }
 
-function playSamples(samples: Float32Array, sampleRate: number, settings: VoiceSettings): Promise<void> {
+async function playSamples(samples: Float32Array, sampleRate: number, settings: VoiceSettings): Promise<boolean> {
   unlockAudio();
-  if (!audioCtx) return Promise.resolve();
+  if (!audioCtx) return false;
+  // A suspended context plays silence without throwing (autoplay policy
+  // before any gesture) — treat it as not-played so the caller falls back.
+  if (audioCtx.state === 'suspended') {
+    try {
+      await audioCtx.resume();
+    } catch {
+      return false;
+    }
+    // Read through a plain string: TS narrows .state to 'suspended'
+    // inside this branch and flags the running-check as impossible.
+    const stateAfterResume: string = audioCtx.state;
+    if (stateAfterResume !== 'running') return false;
+  }
   const ctx = audioCtx;
   const buffer = ctx.createBuffer(1, samples.length, sampleRate);
   buffer.getChannelData(0).set(samples as unknown as Float32Array<ArrayBuffer>);
@@ -765,8 +816,8 @@ function playSamples(samples: Float32Array, sampleRate: number, settings: VoiceS
 
   gain.connect(ctx.destination);
   source.start();
-  return new Promise((resolve) => {
-    source.onended = () => resolve();
+  return new Promise<boolean>((resolve) => {
+    source.onended = () => resolve(true);
   });
 }
 
@@ -883,14 +934,28 @@ function splitForSpeech(text: string): string[] {
   return parts.length ? parts : [text];
 }
 
+/** Guards stale Web Speech utterances: each speakBrowser call bumps the
+ * token, so an old chunk's onerror retry can never re-speak over a newer
+ * readback that already cancelled it (the double-speak race). */
+let browserSpeakToken = 0;
+
 function speakBrowser(text: string, callsign: string, settings: VoiceSettings): Promise<void> {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve();
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    emitAudioNotice(NO_SPEECH_VOICE);
+    return Promise.resolve();
+  }
+  const token = ++browserSpeakToken;
   const chunks = splitForSpeech(text);
   const synth = window.speechSynthesis;
 
   return (async () => {
     unlockAudio();
     await ensureSpeechVoices();
+    // Note: getVoices() can still be empty here on slow devices even
+    // though a voice arrives a moment later, so we do NOT skip the
+    // utterance on an empty list — speak is attempted and, if it errors
+    // after the retry, the exhausted-error path reports the failure
+    // instead of dropping the readback silently.
 
     // Safari drops the next utterance if speak() follows cancel() synchronously.
     try {
@@ -922,6 +987,13 @@ function speakBrowser(text: string, callsign: string, settings: VoiceSettings): 
       };
 
       const speakNext = () => {
+        // A newer readback already cancelled this one — never advance or
+        // retry a stale chunk over it.
+        if (token !== browserSpeakToken) {
+          cleanup();
+          resolve();
+          return;
+        }
         if (idx >= chunks.length) {
           finish();
           return;
@@ -933,11 +1005,13 @@ function speakBrowser(text: string, callsign: string, settings: VoiceSettings): 
         utter.rate = settings.rate;
         utter.volume = Math.max(0.2, settings.volume);
         utter.onend = () => {
+          if (token !== browserSpeakToken) return;
           chunkRetries = 0;
           idx += 1;
           speakNext();
         };
         utter.onerror = (ev) => {
+          if (token !== browserSpeakToken) return;
           // Retry once after a short pause — Safari often errors on the first cold speak.
           const err = (ev as SpeechSynthesisErrorEvent).error;
           if (chunkRetries < 1 && err !== 'canceled') {
@@ -945,6 +1019,9 @@ function speakBrowser(text: string, callsign: string, settings: VoiceSettings): 
             window.setTimeout(() => speakNext(), 80);
             return;
           }
+          // Retries exhausted: the chunk never sounded. Say so once —
+          // the text readback is already in the comm log.
+          if (err !== 'canceled') emitAudioNotice(READBACK_AUDIO_FAILED);
           chunkRetries = 0;
           idx += 1;
           speakNext();
@@ -1253,5 +1330,8 @@ export function __resetPilotVoiceForTests() {
   phraseCache.clear();
   inflightChunks.clear();
   prewarmedCallsigns.clear();
+  browserSpeakToken = 0;
+  lastAudioNotice = '';
+  lastAudioNoticeAt = 0;
   stopInstructorAudio();
 }

@@ -17,6 +17,12 @@ import {
   subscribeWebWhisper,
   WebWhisperRuntime,
 } from '../services/webWhisper';
+import {
+  mapMicError,
+  STT_STILL_TRANSCRIBING,
+  WHISPER_HEARD_NOTHING,
+  WHISPER_TRANSCRIBE_FAILED,
+} from '../services/voiceErrors';
 
 interface PushToTalkProps {
   disabled?: boolean;
@@ -45,6 +51,16 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   callsignsRef.current = activeCallsigns;
   const busyRef = useRef(false);
   const useWhisperRef = useRef(false);
+  /** Mirrors `holding` for callbacks (recognition onend fires after render). */
+  const holdingRef = useRef(false);
+  /** Mid-hold restarts of Web Speech before we give up on a dead mic. */
+  const restartsRef = useRef(0);
+  const MAX_HOLD_RESTARTS = 3;
+
+  const setHoldingState = (next: boolean) => {
+    holdingRef.current = next;
+    setHolding(next);
+  };
 
   useEffect(() => subscribeVoiceSettings(() => {
     const next = getVoiceSettings().accurateSpeech;
@@ -65,7 +81,26 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       onPartial: (payload) => onTranscript(payload),
       onFinal: (payload) => onTranscript(payload),
       onError: (message) => onError?.(message),
-      onEnd: () => setHolding(false),
+      onEnd: () => {
+        if (!holdingRef.current) {
+          setHolding(false);
+          return;
+        }
+        // Chrome stops continuous recognition on its own (pause in speech,
+        // no-speech timeout) while the button is still held — the mic used
+        // to just go dead. Restart while held, up to a few times, then
+        // tell the user instead of looping forever on a dead mic.
+        if (restartsRef.current >= MAX_HOLD_RESTARTS) {
+          restartsRef.current = 0;
+          setHoldingState(false);
+          onError?.('Mic stopped listening — release and hold PTT again.');
+          return;
+        }
+        restartsRef.current += 1;
+        window.setTimeout(() => {
+          if (holdingRef.current) handleRef.current?.start();
+        }, 50);
+      },
     });
     return () => handleRef.current?.abort();
   }, [desktop, onError, onTranscript]);
@@ -75,32 +110,50 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   }, [activeCallsigns]);
 
   const begin = () => {
-    if (disabled || busyRef.current) return;
+    if (disabled || busyRef.current) {
+      if (busyRef.current) onError?.(STT_STILL_TRANSCRIBING);
+      return;
+    }
     if (desktop) {
-      setHolding(true);
+      setHoldingState(true);
+      restartsRef.current = 0;
       void startDesktopCapture().catch((err) => {
-        setHolding(false);
-        onError?.(err instanceof Error ? err.message : 'Mic error');
+        setHoldingState(false);
+        const message = mapMicError(err);
+        if (message) onError?.(message);
       });
       return;
     }
     const whisperOk = accurateSpeech && isWebWhisperReady();
     useWhisperRef.current = whisperOk;
     if (whisperOk) {
-      setHolding(true);
+      setHoldingState(true);
+      restartsRef.current = 0;
       void startWebWhisperCapture().catch((err) => {
         useWhisperRef.current = false;
-        setHolding(false);
-        // Silent path: fall through to Web Speech on next press; surface only hard mic errors.
-        onError?.(err instanceof Error ? err.message : 'Mic error');
+        setHoldingState(false);
+        const message = mapMicError(err);
+        if (message) onError?.(message);
       });
       return;
+    }
+    if (accurateSpeech) {
+      // Accurate speech was asked for but its engine isn't ready — say so
+      // once on this press instead of silently using browser mic.
+      if (whisperRt.phase === 'loading') {
+        onError?.(`Accurate speech still loading (${Math.round(whisperRt.progress * 100)}%) — using browser mic for now.`);
+      } else if (whisperRt.phase === 'unsupported') {
+        onError?.('Accurate speech needs WebGPU — using browser mic.');
+      } else if (whisperRt.phase === 'error') {
+        onError?.('Accurate speech failed to load — using browser mic.');
+      }
     }
     if (!supported) {
       onError?.('Voice commands need Chrome or Edge. Use the tap pad or type.');
       return;
     }
-    setHolding(true);
+    setHoldingState(true);
+    restartsRef.current = 0;
     handleRef.current?.setCallsigns?.(callsignsRef.current);
     handleRef.current?.start();
   };
@@ -108,37 +161,46 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   const end = () => {
     if (desktop) {
       if (!holding && !busyRef.current) return;
-      setHolding(false);
+      setHoldingState(false);
       busyRef.current = true;
       const prompt = buildAtcInitialPrompt(callsignsRef.current);
       void stopDesktopCaptureAndTranscribe(prompt)
         .then((payload) => {
-          if (payload) onTranscript(payload);
+          if (payload) {
+            if (!payload.transcript.trim()) onError?.(WHISPER_HEARD_NOTHING);
+            else onTranscript(payload);
+          } else {
+            onError?.(WHISPER_TRANSCRIBE_FAILED);
+          }
         })
-        .catch((err) => onError?.(err instanceof Error ? err.message : 'STT error'))
+        .catch(() => onError?.('Desktop speech failed — try again, or use tap/type.'))
         .finally(() => {
           busyRef.current = false;
         });
       return;
     }
     if (useWhisperRef.current) {
-      setHolding(false);
+      setHoldingState(false);
       busyRef.current = true;
       useWhisperRef.current = false;
       void stopWebWhisperAndTranscribe(callsignsRef.current)
         .then((payload) => {
           if (payload) {
-            onTranscript(payload);
+            if (!payload.transcript.trim()) onError?.(WHISPER_HEARD_NOTHING);
+            else onTranscript(payload);
             return;
           }
-          // Whisper failed / too slow — fall back once via Web Speech (user must re-PTT).
+          // Whisper failed / too slow — say so instead of dropping the
+          // press silently (previously: no message, user had to re-PTT
+          // with no idea why nothing happened).
+          onError?.(WHISPER_TRANSCRIBE_FAILED);
         })
         .finally(() => {
           busyRef.current = false;
         });
       return;
     }
-    setHolding(false);
+    setHoldingState(false);
     handleRef.current?.stop();
   };
 

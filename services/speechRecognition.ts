@@ -9,6 +9,7 @@
  */
 
 import { buildAtcSpeechGrammarList } from './speechGrammar';
+import { mapSpeechRecognitionError } from './voiceErrors';
 
 export type SpeechEngine = 'webspeech' | 'unavailable';
 
@@ -137,11 +138,11 @@ export function createSpeechRecognition(handlers: {
   };
 
   recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      handlers.onError?.('Microphone permission denied. Use tap commands or type.');
-    } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
-      handlers.onError?.(`Mic error: ${event.error}`);
-    }
+    // 'aborted' maps to null (normal PTT release / mid-hold restart) and
+    // stays silent. Everything else used to be swallowed for 'no-speech'
+    // too, so the mic could go dead with no message — now it is surfaced.
+    const message = mapSpeechRecognitionError(event.error);
+    if (message) handlers.onError?.(message);
   };
 
   recognition.onend = () => handlers.onEnd?.();

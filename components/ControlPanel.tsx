@@ -3,7 +3,9 @@ import { Aircraft, CommMessage, SimulationState } from '../types';
 import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keyboard as KeyboardIcon } from 'lucide-react';
 import SoftKeyboard from './SoftKeyboard';
 import TapCommandPad from './TapCommandPad';
+import PushToTalk from './PushToTalk';
 import VoiceBar from './VoiceBar';
+import type { SpeechResultPayload } from '../services/speechRecognition';
 import { ALTS_NORTH_EAST, ALTS_SOUTH_WEST } from '../constants';
 import { parseCommand } from '../services/commandParser';
 import { applySelectionToCommandInput } from '../services/commandInput';
@@ -40,6 +42,14 @@ interface ControlPanelProps {
   arcadeHud?: React.ReactNode;
   spokenFill?: SpokenCommandFill | null;
   onSpokenFillConsumed?: (token: number) => void;
+  /** Voice input for lesson modes — Expo gets PTT from the arcade HUD,
+   *  but Trainee/Controller/Veteran previously had NO mic button at all:
+   *  VoiceBar showed VOX toggles while there was nothing to hold to talk
+   *  into. When provided, PTT renders above the lesson tap pad. */
+  onTranscript?: (payload: SpeechResultPayload) => void;
+  onSpeechError?: (message: string) => void;
+  /** Live scope callsigns for Whisper / SpeechGrammar bias. */
+  activeCallsigns?: string[];
 }
 
 function padHeading(heading: number): string {
@@ -78,6 +88,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   arcadeHud = null,
   spokenFill = null,
   onSpokenFillConsumed,
+  onTranscript,
+  onSpeechError,
+  activeCallsigns = [],
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [copied, setCopied] = useState(false);
@@ -524,6 +537,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           className="flex-1 min-h-0 flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden"
           data-testid="lesson-tap-slot"
         >
+          {onTranscript && (
+            <div className="shrink-0 pb-1">
+              <PushToTalk
+                compact
+                disabled={!canCommand}
+                onTranscript={onTranscript}
+                onError={onSpeechError}
+                activeCallsigns={activeCallsigns}
+              />
+            </div>
+          )}
           <TapCommandPad aircraft={selectedAircraft} onIssue={onCommand} />
         </div>
       )}

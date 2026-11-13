@@ -44,7 +44,7 @@ describe('pilot voice preload helpers', () => {
     expect(voiceStatusLabel({
       phase: 'fallback', progress: 1, engine: 'webspeech', fromCache: false, warmed: false,
       loadMs: 0, device: 'none', neuralFastEnough: false, lastGenerateMs: 0,
-    })).toBe('Using basic voice');
+    })).toBe('Natural voices failed — using Fast voice');
   });
 
   it('useBasicVoiceNow flips runtime to webspeech fallback', () => {
@@ -138,5 +138,22 @@ describe('pilot voice preload helpers', () => {
   it('prewarmReadback and prewarmCallsigns are safe no-ops before engine ready', () => {
     expect(() => prewarmReadback('Turn left heading two seven zero, American four twenty-one', 'AAL421')).not.toThrow();
     expect(() => prewarmCallsigns(['AAL421', 'DAL88'])).not.toThrow();
+  });
+
+  it('audio notices are delivered once and deduped within 10s', async () => {
+    const { emitAudioNotice, subscribeAudioNotice } = await import('./pilotVoice');
+    const seen: string[] = [];
+    const unsub = subscribeAudioNotice((m) => seen.push(m));
+    try {
+      emitAudioNotice('Readback audio failed — showing text only.');
+      emitAudioNotice('Readback audio failed — showing text only.');
+      emitAudioNotice('Natural voices failed to load — using Fast voice.');
+      expect(seen).toEqual([
+        'Readback audio failed — showing text only.',
+        'Natural voices failed to load — using Fast voice.',
+      ]);
+    } finally {
+      unsub();
+    }
   });
 });

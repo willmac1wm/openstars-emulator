@@ -31,7 +31,7 @@ import {
   subscribeDisplaySettings,
   updateDisplaySettings,
 } from './services/displaySettings';
-import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot } from './services/pilotVoice';
+import { installVoiceDebugHooks, preloadPilotVoice, prewarmCallsigns, primePilotVoice, speakPilot, subscribeAudioNotice } from './services/pilotVoice';
 import {
   playFailTone,
   playSuccessChime,
@@ -832,6 +832,10 @@ const App: React.FC = () => {
     preloadPilotVoice();
   }, []);
 
+  // TTS failures used to vanish silently (speakPilot is fire-and-forget).
+  // Surface them in COMM 1 so a dead voice is visible, not just quiet.
+  useEffect(() => subscribeAudioNotice((message) => addLog(message, 'system')), [addLog]);
+
   // Pre-synthesize callsigns for active aircraft so the tail chunk of every readback is cached.
   useEffect(() => {
     const active = [
@@ -1204,6 +1208,9 @@ const App: React.FC = () => {
         onSpokenFillConsumed={(token) => {
           setSpokenFill((prev) => (prev && prev.token === token ? null : prev));
         }}
+        onTranscript={handleSpokenTranscript}
+        onSpeechError={handleSpeechError}
+        activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
         arcadeHud={playMode === 'expo' && (gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) ? (
           <ExpoArcadeHUD
             remainingMs={arcadeRemainingMs}

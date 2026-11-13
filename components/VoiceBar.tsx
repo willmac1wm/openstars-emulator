@@ -2,21 +2,31 @@ import React, { useEffect, useState } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
 import { getVoiceSettings, subscribeVoiceSettings, updateVoiceSettings, VoiceSettings } from '../services/voiceSettings';
 import { getVoiceRuntime, primePilotVoice, subscribeVoiceRuntime, VoiceRuntime } from '../services/pilotVoice';
+import { getWebWhisperRuntime, subscribeWebWhisper, WebWhisperRuntime } from '../services/webWhisper';
+import { isDesktopApp } from '../services/desktop';
+import { isSpeechRecognitionSupported } from '../services/speechRecognition';
 
 const VoiceBar: React.FC = () => {
   const [settings, setSettings] = useState<VoiceSettings>(getVoiceSettings);
   const [runtime, setRuntime] = useState<VoiceRuntime>(getVoiceRuntime);
+  const [whisperRt, setWhisperRt] = useState<WebWhisperRuntime>(getWebWhisperRuntime);
 
   useEffect(() => subscribeVoiceSettings(() => setSettings(getVoiceSettings())), []);
   useEffect(() => subscribeVoiceRuntime(() => setRuntime(getVoiceRuntime())), []);
+  useEffect(() => subscribeWebWhisper(setWhisperRt), []);
 
+  // TTS engine actually in use — not just the toggle the user picked.
+  // 'fallback' matters: natural was requested but Kokoro failed to load,
+  // so Fast voice is speaking; previously the bar just said FAST.
   const engine = !settings.enabled
     ? 'off'
     : settings.naturalVoices && runtime.engine === 'kokoro' && runtime.phase === 'ready'
       ? 'kokoro'
-      : runtime.phase === 'loading'
-        ? 'loading'
-        : 'webspeech';
+      : settings.naturalVoices && runtime.phase === 'fallback'
+        ? 'fallback'
+        : runtime.phase === 'loading'
+          ? 'loading'
+          : 'webspeech';
 
   const statusLabel = engine === 'off'
     ? 'VOICE OFF'
@@ -24,7 +34,43 @@ const VoiceBar: React.FC = () => {
       ? `LOADING ${Math.round(runtime.progress * 100)}%`
       : engine === 'kokoro'
         ? (runtime.device === 'webgpu' ? 'NATURAL·GPU' : 'NATURAL')
-        : 'FAST';
+        : engine === 'fallback'
+          ? 'FAST·NAT FAILED'
+          : 'FAST';
+
+  // STT engine actually in use for the next PTT press.
+  const sttLabel = isDesktopApp()
+    ? 'DESK-WHISPER'
+    : settings.accurateSpeech
+      ? whisperRt.phase === 'ready'
+        ? 'WHISPER'
+        : whisperRt.phase === 'loading'
+          ? `WHISPER ${Math.round(whisperRt.progress * 100)}%`
+          : 'WEB·AI ✕'
+      : isSpeechRecognitionSupported()
+        ? 'WEB'
+        : '—';
+  const sttTitle = isDesktopApp()
+    ? 'Speech-to-text: desktop Whisper (on-device)'
+    : settings.accurateSpeech
+      ? whisperRt.phase === 'ready'
+        ? 'Speech-to-text: on-device Whisper (ready)'
+        : whisperRt.phase === 'loading'
+          ? `Accurate speech loading ${Math.round(whisperRt.progress * 100)}% — using browser mic for now`
+          : whisperRt.phase === 'unsupported'
+            ? 'Accurate speech needs WebGPU — using browser mic'
+            : whisperRt.phase === 'error'
+              ? 'Accurate speech failed to load — using browser mic'
+              : 'Accurate speech warming up — using browser mic for now'
+      : isSpeechRecognitionSupported()
+        ? 'Speech-to-text: browser Web Speech (Chrome/Edge)'
+        : 'Speech-to-text unavailable in this browser — use tap/type';
+
+  const naturalTitle = engine === 'fallback'
+    ? 'Natural voices failed to load — using Fast voice'
+    : 'Natural Kokoro voices are warmer but often slower on Chromebooks. Default is Fast voice (Web Speech).';
+  const accurateTitle = settings.accurateSpeech ? sttTitle
+    : 'Accurate speech (beta): on-device Whisper tiny.en via WebGPU (~45MB). Falls back to browser speech if unavailable. Audio never leaves your device.';
 
   return (
     <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400" aria-label="Pilot voice">
@@ -48,7 +94,7 @@ const VoiceBar: React.FC = () => {
       <button
         type="button"
         data-testid="natural-voices-toggle"
-        title="Natural Kokoro voices are warmer but often slower on Chromebooks. Default is Fast voice (Web Speech)."
+        title={naturalTitle}
         aria-pressed={settings.naturalVoices}
         onClick={() => {
           const next = !settings.naturalVoices;
@@ -64,7 +110,7 @@ const VoiceBar: React.FC = () => {
       <button
         type="button"
         data-testid="accurate-speech-toggle"
-        title="Accurate speech (beta): on-device Whisper tiny.en via WebGPU (~45MB). Falls back to browser speech if unavailable. Audio never leaves your device."
+        title={accurateTitle}
         aria-pressed={settings.accurateSpeech}
         onClick={() => updateVoiceSettings({ accurateSpeech: !settings.accurateSpeech })}
         className={`px-1.5 py-0.5 rounded border ${
@@ -134,10 +180,12 @@ const VoiceBar: React.FC = () => {
       <span
         data-testid="voice-status"
         data-engine={engine}
+        data-stt-engine={sttLabel}
+        title={`Pilot voice (text-to-speech): ${statusLabel}. Speech-to-text: ${sttTitle}`}
         className="ml-auto text-[9px] tracking-wide text-gray-500"
         aria-live="polite"
       >
-        {statusLabel}
+        {statusLabel} · STT {sttLabel}
         {runtime.lastGenerateMs > 0 && settings.naturalVoices ? ` · ${runtime.lastGenerateMs}ms` : ''}
       </span>
     </div>
