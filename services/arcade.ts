@@ -4,6 +4,8 @@ import { createSeededRandom, seedFromLabel } from './seededRandom';
 import { placeInboundAircraft, polarPos } from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
+/** 60-Second Challenge: one minute, escalating waves, no tutorial needed. */
+export const SIXTY_SECOND_DURATION_MS = 60 * 1000;
 export const ATTRACT_IDLE_MS = 60 * 1000;
 /** Second plane of the opening pair arrives after this delay. */
 export const ARCADE_STAGGER_MS = 12_000;
@@ -93,6 +95,23 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
 
 export function arcadeWaveAircraft(plan: ArcadeRoundPlan, waveIndex: number): Aircraft[] {
   return (plan.waves[waveIndex] || []).map((ac) => ({ ...ac }));
+}
+
+/**
+ * 60-Second Challenge: same seeded traffic as a normal arcade round, but
+ * only the first three waves fit inside one minute and the curveball lands
+ * at 40s. Everything is scheduled strictly before the 60s timer ends.
+ */
+export function buildSixtySecondRound(seedLabel = 'sixty-1'): ArcadeRoundPlan {
+  const plan = buildArcadeRound(seedLabel);
+  return {
+    ...plan,
+    name: '60-Second Challenge',
+    durationMs: SIXTY_SECOND_DURATION_MS,
+    waves: plan.waves.slice(0, 3),
+    waveAtMs: [0, ARCADE_STAGGER_MS, 30_000],
+    curveball: { ...plan.curveball, atMs: 40_000 },
+  };
 }
 
 export function spawnCurveballAircraft(plan: ArcadeRoundPlan): Aircraft | null {

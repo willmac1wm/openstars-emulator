@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Sparkles } from 'lucide-react';
+import { Play, Sparkles, Trophy } from 'lucide-react';
 import VoicePreloadBanner from './VoicePreloadBanner';
 import { getVoiceRuntime, subscribeVoiceRuntime, VoiceRuntime } from '../services/pilotVoice';
+import { loadHighScores } from '../services/highScores';
 
 interface AttractModeProps {
   onStart: () => void;
   onTutorial?: () => void;
+  onOpenLeaderboard?: () => void;
 }
 
 const LINES = [
@@ -14,9 +16,10 @@ const LINES = [
   'Keep them apart. Hit the gate. Beat the clock.',
 ];
 
-const AttractMode: React.FC<AttractModeProps> = ({ onStart, onTutorial }) => {
+const AttractMode: React.FC<AttractModeProps> = ({ onStart, onTutorial, onOpenLeaderboard }) => {
   const [line, setLine] = useState(0);
   const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
+  const [topScores] = useState(() => loadHighScores().slice(0, 3));
 
   useEffect(() => {
     const timer = setInterval(() => setLine((n) => (n + 1) % LINES.length), 2800);
@@ -91,6 +94,29 @@ const AttractMode: React.FC<AttractModeProps> = ({ onStart, onTutorial }) => {
           )}
         </div>
         <div className="text-gray-600 text-xs md:text-sm">Any key starts a 5-minute arcade shift</div>
+        {topScores.length > 0 && (
+          <div data-testid="attract-top-scores" className="pointer-events-auto bg-black/60 border border-gray-800 rounded-lg px-4 py-3 text-left">
+            <div className="text-yellow-400 text-xs tracking-widest uppercase flex items-center gap-2 mb-1">
+              <Trophy size={14} /> Top scores on this device
+            </div>
+            {topScores.map((row, index) => (
+              <div key={`${row.initials}-${row.at}`} className="flex justify-between gap-6 text-sm md:text-base font-mono text-green-300">
+                <span>{index + 1}. {row.initials}{row.mode ? ` · ${row.mode}` : ''}</span>
+                <span className="text-white font-bold">{row.score}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {onOpenLeaderboard && (
+          <button
+            type="button"
+            data-testid="attract-leaderboard"
+            onClick={(e) => { e.stopPropagation(); onOpenLeaderboard(); }}
+            className="pointer-events-auto border border-yellow-600 text-yellow-300 px-5 py-3 rounded-xl font-bold hover:bg-yellow-950/40"
+          >
+            LEADERBOARD
+          </button>
+        )}
       </div>
     </div>
   );

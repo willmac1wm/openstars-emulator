@@ -8,6 +8,8 @@ import FlightStripBay from './components/FlightStripBay';
 import ReferencePanel from './components/ReferencePanel';
 import AttractMode from './components/AttractMode';
 import ArcadeSummary from './components/ArcadeSummary';
+import LeaderboardView from './components/LeaderboardView';
+import InstructorView from './components/InstructorView';
 import ExpoArcadeHUD from './components/ExpoArcadeHUD';
 import GuidedTutorial, { TutorialActionSink, TutorialBridge } from './components/tutorial/GuidedTutorial';
 import DesktopSettings from './components/DesktopSettings';
@@ -53,11 +55,21 @@ import {
   applyGoAround,
   arcadeWaveAircraft,
   buildArcadeRound,
+  buildSixtySecondRound,
   curveballPilotPhrase,
   planToInitialScenario,
   perfectHandoffPilotLine,
   spawnCurveballAircraft,
 } from './services/arcade';
+import {
+  loadProfile,
+  loadProgress,
+  recordSession,
+  saveProgress,
+  PlayerProfile,
+  Progress,
+} from './services/progression';
+import { saveSessionRecord } from './services/sessionLog';
 import { 
   MAP_SIZE, CENTER, INITIAL_INSTRUCTION, NM_TO_PX, DEFAULT_TIME_SCALE, 
   SIM_SPEED_OPTIONS, NM_3_PX, NM_4_PX,
@@ -119,6 +131,15 @@ const App: React.FC = () => {
   const spokenFillTokenRef = useRef(0);
   const [showArcadeSummary, setShowArcadeSummary] = useState(false);
   const [conflictAlarm, setConflictAlarm] = useState(false);
+  // Progression (local only): profile, cumulative progress, menu overlays.
+  const [profile, setProfile] = useState<PlayerProfile>(() => loadProfile());
+  const [progress, setProgress] = useState<Progress>(() => loadProgress());
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showInstructor, setShowInstructor] = useState(false);
+  const [arcadeVariant, setArcadeVariant] = useState<'arcade' | 'sixty' | null>(null);
+  const arcadeVariantRef = useRef<'arcade' | 'sixty' | null>(null);
+  const isDailyRef = useRef(false);
+  const recordedSessionRef = useRef<number | null>(null);
   const [desktopSettingsOpen, setDesktopSettingsOpen] = useState(false);
   const [showVtfSetup, setShowVtfSetup] = useState(false);
   const [vtfActive, setVtfActive] = useState(false);
@@ -198,6 +219,15 @@ const App: React.FC = () => {
     const requestedSeed = typeof options === 'string'
       ? readSeedFromLocation()
       : (options.seedLabel ?? readSeedFromLocation());
+    isDailyRef.current = typeof options !== 'string' && Boolean(options.daily);
+    recordedSessionRef.current = null;
+    if (difficulty === 'Expo60' || difficulty === '60-Second') {
+      startArcadeRound(
+        typeof requestedSeed === 'string' ? requestedSeed : undefined,
+        'sixty',
+      );
+      return;
+    }
     const seed = resolveSeedInput(
       requestedSeed ?? DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS],
       difficulty,
@@ -269,6 +299,10 @@ const App: React.FC = () => {
   const returnToMenu = (opts?: { attract?: boolean }) => {
     clearArcadeTimers();
     arcadeActiveRef.current = false;
+    arcadeVariantRef.current = null;
+    setArcadeVariant(null);
+    isDailyRef.current = false;
+    recordedSessionRef.current = null;
     setTutorialActive(false);
     setArcadeEndsAt(null);
     setArcadeBanner(null);
@@ -291,6 +325,26 @@ const App: React.FC = () => {
     // Never terminate How to Play into a FAILED / summary screen.
     if (tutorialActiveRef.current) return;
     clearArcadeTimers();
+    // Record the finished session once (progression + instructor log).
+    // Guarded by startTime: endGame can be reached twice on the arcade path.
+    if (recordedSessionRef.current !== stats.startTime && stats.startTime > 0) {
+      recordedSessionRef.current = stats.startTime;
+      const mode = arcadeActiveRef.current
+        ? (arcadeVariantRef.current === 'sixty' ? '60-Second' : 'Expo')
+        : currentDifficulty;
+      const next = recordSession(loadProgress(), mode, score, stats.perfectExits);
+      saveProgress(next);
+      setProgress(next);
+      saveSessionRecord({
+        initials: loadProfile().initials,
+        mode,
+        score,
+        cleanExits: stats.perfectExits,
+        busts: stats.separationBusts,
+        daily: isDailyRef.current,
+        seed: scenarioSeed ?? undefined,
+      });
+    }
     if (arcadeActiveRef.current) {
       arcadeActiveRef.current = false;
       setGameState(SimulationState.SUMMARY);
@@ -307,7 +361,7 @@ const App: React.FC = () => {
     } else {
         trackEvent('Game Completed', { score, separationBusts: stats.separationBusts });
     }
-  }, [score, highScore, stats.separationBusts, clearArcadeTimers]);
+  }, [score, highScore, stats.separationBusts, stats.startTime, stats.perfectExits, currentDifficulty, scenarioSeed, clearArcadeTimers]);
 
   const startTutorial = useCallback(() => {
     // User gesture: unlock AudioContext + prime Safari/Chrome speechSynthesis voices.
@@ -344,12 +398,16 @@ const App: React.FC = () => {
     trackEvent('Tutorial Started', { seed: TUTORIAL_SEED });
   }, [clearArcadeTimers]);
 
-  const startArcadeRound = useCallback((seedLabel?: string) => {
+  const startArcadeRound = useCallback((seedLabel?: string, variant: 'arcade' | 'sixty' = 'arcade') => {
     clearArcadeTimers();
     const seed = resolveSeedInput(seedLabel || readSeedFromLocation() || 'arcade-1', 'Expo');
-    const plan = buildArcadeRound(seed.display);
+    const plan = variant === 'sixty' ? buildSixtySecondRound(seed.display) : buildArcadeRound(seed.display);
     const scenario = planToInitialScenario(plan);
     arcadeActiveRef.current = true;
+    arcadeVariantRef.current = variant;
+    setArcadeVariant(variant);
+    isDailyRef.current = false;
+    recordedSessionRef.current = null;
     setTutorialActive(false);
     setShowAttract(false);
     setShowArcadeSummary(false);
@@ -358,7 +416,7 @@ const App: React.FC = () => {
     setScenarioSeed(seed.display);
     writeSeedToUrl(seed.display);
     setScoreFlash(null);
-    setArcadeBanner('SHIFT OPEN — clear the gates. Hold PTT to talk.');
+    setArcadeBanner(variant === 'sixty' ? '60-SECOND CHALLENGE — clear the gates, beat the clock.' : 'SHIFT OPEN — clear the gates. Hold PTT to talk.');
     setLiveTranscript('');
     setConflictAlarm(false);
     setConflictAlertActive(false);
@@ -369,7 +427,7 @@ const App: React.FC = () => {
     setSelectedId(firstId);
     setGameState(SimulationState.RUNNING);
     setStatusMessage(`ARCADE: ${plan.name}`);
-    setMessages([{ id: 1, text: 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
+    setMessages([{ id: 1, text: variant === 'sixty' ? '60-SECOND CHALLENGE — 60 SECONDS. VOICE, TAP, OR TYPE.' : 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
     setScore(0);
     setStats({ ...INITIAL_STATS, startTime: Date.now() });
     incidentCooldowns.current.clear();
@@ -428,7 +486,7 @@ const App: React.FC = () => {
       return;
     }
     if (arcadeActiveRef.current) {
-      startArcadeRound(scenarioSeed ?? undefined);
+      startArcadeRound(scenarioSeed ?? undefined, arcadeVariantRef.current ?? 'arcade');
       return;
     }
     void startGame({ difficulty: currentDifficulty, seedLabel: scenarioSeed ?? undefined });
@@ -1034,8 +1092,15 @@ const App: React.FC = () => {
           highScore={highScore}
           activeSeed={scenarioSeed}
           tutorialDone={tutorialDoneFlag}
+          profile={profile}
+          onProfileChange={(next) => setProfile(next)}
+          progress={progress}
+          onOpenLeaderboard={() => setShowLeaderboard(true)}
+          onOpenInstructor={() => setShowInstructor(true)}
         />
       )}
+      {showLeaderboard && <LeaderboardView onBack={() => setShowLeaderboard(false)} />}
+      {showInstructor && <InstructorView onBack={() => setShowInstructor(false)} />}
       {ENABLE_VECTOR_TO_FINAL && showVtfSetup && (
         <VtfSetup
           defaultSeed={scenarioSeed || 'vtf-1'}
@@ -1066,13 +1131,13 @@ const App: React.FC = () => {
         </div>
       )}
       {showAttract && gameState === SimulationState.MENU && (
-        <AttractMode onStart={() => startArcadeRound()} onTutorial={startTutorial} />
+        <AttractMode onStart={() => startArcadeRound()} onTutorial={startTutorial} onOpenLeaderboard={() => setShowLeaderboard(true)} />
       )}
       {gameState === SimulationState.SUMMARY && showArcadeSummary && (
-        <ArcadeSummary score={score} stats={stats} onDone={finishArcadeSummary} />
+        <ArcadeSummary score={score} stats={stats} onDone={finishArcadeSummary} variant={arcadeVariant ?? 'arcade'} profileInitials={profile.initials} />
       )}
       {gameState === SimulationState.SUMMARY && !showArcadeSummary && (
-        <SummaryScreen score={score} stats={stats} onReset={returnToMenu} />
+        <SummaryScreen score={score} stats={stats} onReset={returnToMenu} progress={progress} isDaily={isDailyRef.current} />
       )}
 
       {/* PRO DASHBOARD LAYOUT */}

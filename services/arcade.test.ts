@@ -3,6 +3,7 @@ import {
   ARCADE_DURATION_MS,
   ARCADE_STAGGER_MS,
   buildArcadeRound,
+  buildSixtySecondRound,
   planToInitialScenario,
   spawnCurveballAircraft,
 } from './arcade';
@@ -38,5 +39,18 @@ describe('arcade round plan', () => {
     expect(nordo?.special).toBe('nordo');
     expect(nordo && isEdgeSpawn(nordo)).toBe(true);
     expect(spawnCurveballAircraft(goaroundPlan)).toBeNull();
+  });
+});
+
+describe('buildSixtySecondRound', () => {
+  it('lasts 60 seconds with every wave and the curveball inside the minute', () => {
+    const plan = buildSixtySecondRound('sixty-test');
+    expect(plan.durationMs).toBe(60_000);
+    expect(plan.name).toBe('60-Second Challenge');
+    plan.waveAtMs.forEach((at) => expect(at).toBeLessThan(plan.durationMs));
+    expect(plan.curveball.atMs).toBeLessThan(plan.durationMs);
+    expect(plan.waves.length).toBe(3);
+    // Same seeded traffic as the full round for the waves it shares.
+    expect(plan.waves[0][0].callsign).toBe('AAL421');
   });
 });

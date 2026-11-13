@@ -64,6 +64,8 @@ export interface GameScenario {
 export interface StartOptions {
   difficulty: ScenarioDifficulty | string;
   seedLabel?: string | number;
+  /** Today's daily challenge (seed `daily-YYYY-MM-DD`) — recorded as a daily entry. */
+  daily?: boolean;
 }
 
 export enum SimulationState {

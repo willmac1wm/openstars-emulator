@@ -2,6 +2,10 @@ export interface HighScoreEntry {
   initials: string;
   score: number;
   at: number;
+  /** Which mode the score was earned in ('Expo', '60-Second', …). Old entries have none. */
+  mode?: string;
+  cleanExits?: number;
+  daily?: boolean;
 }
 
 const STORAGE_KEY = 'openstars_arcade_scores';
@@ -32,6 +36,9 @@ export function loadHighScores(): HighScoreEntry[] {
         initials: sanitizeInitials(row.initials),
         score: Math.max(0, Math.floor(row.score)),
         at: row.at || 0,
+        mode: typeof row.mode === 'string' ? row.mode : undefined,
+        cleanExits: typeof row.cleanExits === 'number' ? Math.max(0, Math.floor(row.cleanExits)) : undefined,
+        daily: Boolean(row.daily) || undefined,
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_ENTRIES);
@@ -40,10 +47,21 @@ export function loadHighScores(): HighScoreEntry[] {
   }
 }
 
-export function saveHighScore(initials: string, score: number): HighScoreEntry[] {
+export function saveHighScore(
+  initials: string,
+  score: number,
+  opts?: { mode?: string; cleanExits?: number; daily?: boolean },
+): HighScoreEntry[] {
   const next = [
     ...loadHighScores(),
-    { initials: sanitizeInitials(initials), score: Math.max(0, Math.floor(score)), at: Date.now() },
+    {
+      initials: sanitizeInitials(initials),
+      score: Math.max(0, Math.floor(score)),
+      at: Date.now(),
+      mode: opts?.mode,
+      cleanExits: opts?.cleanExits,
+      daily: opts?.daily || undefined,
+    },
   ]
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_ENTRIES);
@@ -53,6 +71,14 @@ export function saveHighScore(initials: string, score: number): HighScoreEntry[]
     /* private mode */
   }
   return next;
+}
+
+export function clearHighScores(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* private mode */
+  }
 }
 
 export function qualifiesForBoard(score: number): boolean {

@@ -31,6 +31,7 @@
     "kokoro-js": "^1.2.1",
     "lucide-react": "^0.344.0",
     "posthog-js": "^1.100.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -38,6 +39,7 @@
     "@capacitor/cli": "^5.7.0",
     "@tailwindcss/vite": "^4.1.17",
     "@tauri-apps/cli": "^2.12.4",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",

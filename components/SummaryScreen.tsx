@@ -2,14 +2,18 @@
 import React from 'react';
 import { RotateCcw, Share2, AlertTriangle, CheckCircle } from 'lucide-react';
 import { GameStats, Incident } from '../types';
+import { nextUnlock, rankFor, Progress } from '../services/progression';
+import TakeHomeQr from './TakeHomeQr';
 
 interface SummaryScreenProps {
   score: number;
   stats: GameStats;
   onReset: () => void;
+  progress?: Progress | null;
+  isDaily?: boolean;
 }
 
-const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset }) => {
+const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset, progress, isDaily }) => {
   
   // Calculate Grade
   let grade = 'F';
@@ -38,6 +42,18 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset }) 
             <div className={`text-8xl font-black ${gradeColor} drop-shadow-lg`}>{grade}</div>
             
             <div className="mt-6 text-gray-500 text-xs">Duration: {mins}m {secs}s</div>
+            {isDaily && (
+              <div data-testid="daily-summary-label" className="mt-2 text-amber-300 text-xs font-bold">TODAY'S CHALLENGE — recorded on the daily board</div>
+            )}
+            {progress && (
+              <div data-testid="summary-progress" className="mt-3 text-xs text-gray-400 text-center leading-relaxed">
+                <div className="text-green-400 font-bold">RANK: {rankFor(progress).name}</div>
+                <div>{progress.totalCleanExits} clean exits total · best {progress.bestScore}</div>
+                {(() => { const next = nextUnlock(progress); return next ? (
+                  <div className="text-amber-300">Next unlock: {next.label} — {next.have}/{next.need} clean exits</div>
+                ) : null; })()}
+              </div>
+            )}
         </div>
 
         {/* Right: Details */}
@@ -100,6 +116,9 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ score, stats, onReset }) 
                 >
                     <RotateCcw size={18} /> Return to Menu
                 </button>
+            </div>
+            <div className="mt-3">
+              <TakeHomeQr />
             </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Trophy, ChevronRight, Sparkles } from 'lucide-react';
+import { Play, Trophy, ChevronRight, Sparkles, Lock, CalendarDays, GraduationCap, Timer } from 'lucide-react';
 import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
 import { getVoiceRuntime, subscribeVoiceRuntime, useBasicVoiceNow, VoiceRuntime } from '../services/pilotVoice';
@@ -7,6 +7,19 @@ import VoicePreloadBanner from './VoicePreloadBanner';
 import DesktopDownload from './DesktopDownload';
 import { ENABLE_VECTOR_TO_FINAL } from '../services/features';
 import { isDesktopApp } from '../services/desktop';
+import {
+  dailyLabelForDate,
+  dailySeedToday,
+  isModeUnlocked,
+  nextRank,
+  nextUnlock,
+  rankFor,
+  saveProfile,
+  unlockRequirement,
+  PlayerProfile,
+  Progress,
+} from '../services/progression';
+import { sanitizeInitials } from '../services/highScores';
 
 interface MainMenuProps {
   onStart: (options: StartOptions | string) => void;
@@ -16,6 +29,11 @@ interface MainMenuProps {
   activeSeed?: string | null;
   /** Reserved for callers; sessions never force the tutorial. */
   tutorialDone?: boolean;
+  profile?: PlayerProfile;
+  onProfileChange?: (profile: PlayerProfile) => void;
+  progress?: Progress | null;
+  onOpenLeaderboard?: () => void;
+  onOpenInstructor?: () => void;
 }
 
 const MODES: Array<{
@@ -36,12 +54,23 @@ const MainMenu: React.FC<MainMenuProps> = ({
   onOpenVtf,
   highScore,
   activeSeed = null,
+  profile,
+  onProfileChange,
+  progress,
+  onOpenLeaderboard,
+  onOpenInstructor,
 }) => {
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty>('Expo');
   const urlSeed = readSeedFromLocation();
   const [seedInput, setSeedInput] = useState(urlSeed || activeSeed || DEFAULT_SCENARIO_SEEDS.Expo);
   const [voice, setVoice] = useState<VoiceRuntime>(getVoiceRuntime);
   const [startHint, setStartHint] = useState<string | null>(null);
+  const [initialsInput, setInitialsInput] = useState(profile?.initials ?? 'ATC');
+  const [lockedHint, setLockedHint] = useState<string | null>(null);
+  const dailySeed = dailySeedToday();
+  const rank = progress ? rankFor(progress) : null;
+  const rankNext = progress ? nextRank(progress) : null;
+  const unlockNext = progress ? nextUnlock(progress) : null;
   // Keep VTF off production until Will green-lights it (code remains for the polish PR).
   const showVtf = ENABLE_VECTOR_TO_FINAL && Boolean(onOpenVtf);
 
@@ -154,37 +183,146 @@ const MainMenu: React.FC<MainMenuProps> = ({
             </label>
           </div>
 
+          {/* Player profile + progression — local only, saved on this device. */}
+          <div data-testid="progression-panel" className="bg-gray-950 border border-gray-800 rounded p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs md:text-sm text-gray-400">
+                <span className="uppercase tracking-wider">Your initials</span>
+                <input
+                  data-testid="profile-initials-input"
+                  value={initialsInput}
+                  maxLength={3}
+                  onChange={(event) => {
+                    const next = sanitizeInitials(event.target.value);
+                    setInitialsInput(next);
+                    if (next.length === 3) onProfileChange?.(saveProfile({ initials: next }));
+                  }}
+                  onBlur={() => onProfileChange?.(saveProfile({ initials: initialsInput }))}
+                  className="w-20 bg-black border border-gray-700 rounded px-2 py-2 text-center text-green-300 font-mono text-sm uppercase tracking-[0.3em] focus:border-green-500 focus:outline-none"
+                  aria-label="Your initials"
+                />
+              </label>
+              <span className="text-[11px] text-gray-500">Saved on this device only — no account</span>
+            </div>
+            {progress && rank && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs md:text-sm">
+                  <span className="text-green-400 font-bold">RANK: {rank.name}</span>
+                  <span className="text-gray-400">{progress.totalCleanExits} clean exits · {progress.totalSessions} sessions · best {progress.bestScore}</span>
+                </div>
+                {rankNext ? (
+                  <div>
+                    <div className="h-2 bg-gray-800 rounded overflow-hidden">
+                      <div
+                        className="h-full bg-green-500"
+                        style={{ width: `${Math.min(100, Math.round((rankNext.have / rankNext.need) * 100))}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-gray-500 mt-1">
+                      {rankNext.have}/{rankNext.need} clean exits to {rankNext.rank.name}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-yellow-400">Top rank reached.</div>
+                )}
+                {unlockNext && (
+                  <div data-testid="next-unlock" className="text-[11px] text-amber-300">
+                    Next unlock: {unlockNext.label} — {unlockNext.have}/{unlockNext.need} clean exits in {unlockNext.mode === 'Medium' ? 'TRAINEE' : 'CONTROLLER'}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                data-testid="daily-challenge"
+                onClick={() => onStart({ difficulty: 'Easy', seedLabel: dailySeed, daily: true })}
+                className="flex-1 min-w-[140px] bg-amber-700/80 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
+              >
+                <CalendarDays size={16} /> TODAY'S CHALLENGE · {dailyLabelForDate(new Date())}
+              </button>
+              <button
+                type="button"
+                data-testid="sixty-second-challenge"
+                onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sixty-1' })}
+                className="flex-1 min-w-[140px] bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
+              >
+                <Timer size={16} /> 60-SECOND CHALLENGE
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {onOpenLeaderboard && (
+                <button
+                  type="button"
+                  data-testid="leaderboard-open"
+                  onClick={onOpenLeaderboard}
+                  className="flex-1 min-w-[120px] border border-yellow-600 text-yellow-300 hover:bg-yellow-950/40 font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
+                >
+                  <Trophy size={16} /> LEADERBOARD
+                </button>
+              )}
+              {onOpenInstructor && (
+                <button
+                  type="button"
+                  data-testid="instructor-open"
+                  onClick={onOpenInstructor}
+                  className="flex-1 min-w-[120px] border border-gray-600 text-gray-200 hover:bg-gray-900 font-bold py-2 px-3 rounded text-sm flex items-center justify-center gap-2"
+                >
+                  <GraduationCap size={16} /> CLASS SCORES
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <div className="text-xs text-gray-500 uppercase tracking-wider ml-1">Pick a session</div>
-            {MODES.map((mode) => (
+            {lockedHint && (
+              <div data-testid="locked-hint" className="text-xs text-amber-300 bg-amber-950/30 border border-amber-800/40 rounded px-3 py-2">
+                {lockedHint} Expo Arcade and the 60-Second Challenge are always open.
+              </div>
+            )}
+            {MODES.map((mode) => {
+              const locked = Boolean(progress && !isModeUnlocked(progress, mode.id));
+              const requirement = unlockRequirement(mode.id);
+              return (
               <button
                 key={mode.id}
                 type="button"
                 data-testid={`mode-${mode.id}`}
+                disabled={locked}
                 onClick={() => {
+                  if (locked) {
+                    setLockedHint(requirement);
+                    return;
+                  }
+                  setLockedHint(null);
                   setDifficulty(mode.id);
                   if (!urlSeed && (!seedInput || Object.values(DEFAULT_SCENARIO_SEEDS).includes(seedInput))) {
                     setSeedInput(DEFAULT_SCENARIO_SEEDS[mode.id]);
                   }
                 }}
                 className={`w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left ${
-                  difficulty === mode.id
+                  locked
+                    ? 'bg-black border-gray-900 text-gray-600 cursor-not-allowed'
+                    : difficulty === mode.id
                     ? 'bg-green-900/30 border-green-500 text-white shadow-[0_0_15px_rgba(20,241,149,0.1)]'
                     : 'bg-black border-gray-800 text-gray-500 hover:border-gray-600'
                 }`}
               >
                 <div>
-                  <div className={`font-bold text-lg md:text-xl flex items-center gap-2 ${difficulty === mode.id ? 'text-green-400' : 'text-gray-400'}`}>
+                  <div className={`font-bold text-lg md:text-xl flex items-center gap-2 ${difficulty === mode.id && !locked ? 'text-green-400' : 'text-gray-400'}`}>
+                    {locked && <Lock size={16} className="text-gray-600" />}
                     {mode.label}
                     {mode.badge && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-600 text-amber-300">{mode.badge}</span>
                     )}
                   </div>
-                  <div className="text-xs md:text-sm opacity-70">{mode.desc}</div>
+                  <div className="text-xs md:text-sm opacity-70">{locked && requirement ? requirement : mode.desc}</div>
                 </div>
-                {difficulty === mode.id && <ChevronRight className="text-green-500" />}
+                {difficulty === mode.id && !locked && <ChevronRight className="text-green-500" />}
               </button>
-            ))}
+              );
+            })}
             {showVtf && (
               <button
                 type="button"
