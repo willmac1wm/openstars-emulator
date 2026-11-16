@@ -75,6 +75,21 @@ describe('simplified main menu', () => {
     expect(html.indexOf('60-SECOND CHALLENGE')).toBeLessThan(html.indexOf('TRAINEE'));
     expect(html.indexOf('EXPO ARCADE')).toBeLessThan(html.indexOf('60-SECOND CHALLENGE'));
   });
+
+  it('renders the ops-room photo background with a dark overlay, hero first', () => {
+    const html = menuHtml();
+    expect(html).toContain('data-testid="menu-photo-background"');
+    expect(html).toContain('data-testid="menu-photo-overlay"');
+    // All three bundled photos present; the ops-room hero is the visible one
+    // on first paint (opacity-100) and comes first in the markup.
+    expect(html).toContain('/images/ops-room.webp');
+    expect(html).toContain('/images/ops-listening.webp');
+    expect(html).toContain('/images/ops-handover.webp');
+    expect(html.indexOf('/images/ops-room.webp')).toBeLessThan(html.indexOf('/images/ops-listening.webp'));
+    expect(html.indexOf('/images/ops-listening.webp')).toBeLessThan(html.indexOf('/images/ops-handover.webp'));
+    // The Italian sim screenshot is a UI screenshot, not a photo — never a background.
+    expect(html).not.toContain('tutorial.jpg');
+  });
 });
 
 describe('gate altitudes on the scope', () => {

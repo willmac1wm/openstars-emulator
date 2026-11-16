@@ -47,6 +47,22 @@ const MODES: Array<{
 ];
 
 /**
+ * Home-screen photos (Nov 2026, William's call): real ATC ops-room photos
+ * as the menu background. Bundled locally in public/images/ — never hotlinked.
+ * foto-sala (ops room) is the hero and the first paint; the other two
+ * crossfade in on a slow rotation. The Italian sim screenshot (tutorial.jpg)
+ * is deliberately NOT used — it is a UI screenshot, not a photo.
+ * The photos are dark already, but the overlay below is what guarantees
+ * the white/green menu text stays readable over them.
+ */
+const MENU_PHOTOS = [
+  { src: '/images/ops-room.webp', alt: '' },
+  { src: '/images/ops-listening.webp', alt: '' },
+  { src: '/images/ops-handover.webp', alt: '' },
+];
+const PHOTO_ROTATE_MS = 12000;
+
+/**
  * Simplified menu (Nov 2026, William's call): title + five session cards +
  * How to Play + one footer line. Everything else moved, not deleted:
  * - Voice loading lives nowhere on the menu — natural voices load silently
@@ -75,6 +91,18 @@ const MainMenu: React.FC<MainMenuProps> = ({
   const [profileOpen, setProfileOpen] = useState(false);
   const [initialsInput, setInitialsInput] = useState(profile?.initials ?? 'ATC');
   const [lockedHint, setLockedHint] = useState<string | null>(null);
+  // Slow photo crossfade. Static foto-sala only when the user prefers
+  // reduced motion (or matchMedia is unavailable, e.g. node tests).
+  const [photoIndex, setPhotoIndex] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const timer = window.setInterval(
+      () => setPhotoIndex((i) => (i + 1) % MENU_PHOTOS.length),
+      PHOTO_ROTATE_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
   const dailySeed = dailySeedToday();
   const rank = progress ? rankFor(progress) : null;
   const rankNext = progress ? nextRank(progress) : null;
@@ -129,7 +157,32 @@ const MainMenu: React.FC<MainMenuProps> = ({
       data-testid="main-menu"
       className="absolute inset-0 z-50 bg-black text-green-500 font-mono select-none overflow-y-auto overscroll-contain touch-pan-y"
     >
-      <div className="w-full min-h-full flex flex-col items-center justify-start p-3 md:p-6 py-6 md:py-8">
+      {/* Photo background: visible from the first paint — not gated on voice
+          loading or any async state. Fixed so it stays put while the menu
+          scrolls on short viewports; the dark overlay is what keeps the
+          menu text readable over the photos. */}
+      <div
+        data-testid="menu-photo-background"
+        aria-hidden
+        className="fixed inset-0 z-0 pointer-events-none"
+      >
+        {MENU_PHOTOS.map((photo, i) => (
+          <img
+            key={photo.src}
+            src={photo.src}
+            alt={photo.alt}
+            data-testid={i === 0 ? 'menu-photo-hero' : `menu-photo-${i}`}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[2000ms] ease-in-out ${
+              i === photoIndex ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        ))}
+        <div
+          data-testid="menu-photo-overlay"
+          className="absolute inset-0 bg-gradient-to-b from-black/85 via-black/75 to-black/90"
+        />
+      </div>
+      <div className="relative z-10 w-full min-h-full flex flex-col items-center justify-start p-3 md:p-6 py-6 md:py-8">
         <div className="w-full max-w-xl space-y-4">
           <div className="text-center space-y-2">
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-white drop-shadow-[0_0_10px_rgba(20,241,149,0.8)]">
