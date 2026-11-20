@@ -42,6 +42,8 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   activeCallsigns = [],
 }) => {
   const [holding, setHolding] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const desktop = isDesktopApp();
   const [supported] = useState(() => desktop || isSpeechRecognitionSupported());
   const [accurateSpeech, setAccurateSpeech] = useState(() => getVoiceSettings().accurateSpeech);
@@ -109,9 +111,18 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
     handleRef.current?.setCallsigns?.(activeCallsigns);
   }, [activeCallsigns]);
 
+  const reportError = (msg: string) => {
+    setLastError(msg);
+    onError?.(msg);
+  };
+
+  const beginRef = useRef<() => void>(() => undefined);
+  const endRef = useRef<() => void>(() => undefined);
+
   const begin = () => {
+    setLastError(null);
     if (disabled || busyRef.current) {
-      if (busyRef.current) onError?.(STT_STILL_TRANSCRIBING);
+      if (busyRef.current) reportError(STT_STILL_TRANSCRIBING);
       return;
     }
     if (desktop) {
@@ -120,7 +131,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       void startDesktopCapture().catch((err) => {
         setHoldingState(false);
         const message = mapMicError(err);
-        if (message) onError?.(message);
+        if (message) reportError(message);
       });
       return;
     }
@@ -133,7 +144,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
         useWhisperRef.current = false;
         setHoldingState(false);
         const message = mapMicError(err);
-        if (message) onError?.(message);
+        if (message) reportError(message);
       });
       return;
     }
@@ -141,15 +152,15 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       // Accurate speech was asked for but its engine isn't ready — say so
       // once on this press instead of silently using browser mic.
       if (whisperRt.phase === 'loading') {
-        onError?.(`Accurate speech still loading (${Math.round(whisperRt.progress * 100)}%) — using browser mic for now.`);
+        reportError(`Accurate speech still loading (${Math.round(whisperRt.progress * 100)}%) — using browser mic for now.`);
       } else if (whisperRt.phase === 'unsupported') {
-        onError?.('Accurate speech needs WebGPU — using browser mic.');
+        reportError('Accurate speech needs WebGPU — using browser mic.');
       } else if (whisperRt.phase === 'error') {
-        onError?.('Accurate speech failed to load — using browser mic.');
+        reportError('Accurate speech failed to load — using browser mic.');
       }
     }
     if (!supported) {
-      onError?.('Voice commands need Chrome or Edge. Use the tap pad or type.');
+      reportError('Voice commands need Chrome or Edge. Use the tap pad or type.');
       return;
     }
     setHoldingState(true);
@@ -160,43 +171,44 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
 
   const end = () => {
     if (desktop) {
-      if (!holding && !busyRef.current) return;
+      if (!holdingRef.current && !busyRef.current) return;
       setHoldingState(false);
       busyRef.current = true;
+      setTranscribing(true);
       const prompt = buildAtcInitialPrompt(callsignsRef.current);
       void stopDesktopCaptureAndTranscribe(prompt)
         .then((payload) => {
           if (payload) {
-            if (!payload.transcript.trim()) onError?.(WHISPER_HEARD_NOTHING);
+            if (!payload.transcript.trim()) reportError(WHISPER_HEARD_NOTHING);
             else onTranscript(payload);
           } else {
-            onError?.(WHISPER_TRANSCRIBE_FAILED);
+            reportError(WHISPER_TRANSCRIBE_FAILED);
           }
         })
-        .catch(() => onError?.('Desktop speech failed — try again, or use tap/type.'))
+        .catch(() => reportError('Desktop speech failed — try again, or use tap/type.'))
         .finally(() => {
           busyRef.current = false;
+          setTranscribing(false);
         });
       return;
     }
     if (useWhisperRef.current) {
       setHoldingState(false);
       busyRef.current = true;
+      setTranscribing(true);
       useWhisperRef.current = false;
       void stopWebWhisperAndTranscribe(callsignsRef.current)
         .then((payload) => {
           if (payload) {
-            if (!payload.transcript.trim()) onError?.(WHISPER_HEARD_NOTHING);
+            if (!payload.transcript.trim()) reportError(WHISPER_HEARD_NOTHING);
             else onTranscript(payload);
             return;
           }
-          // Whisper failed / too slow — say so instead of dropping the
-          // press silently (previously: no message, user had to re-PTT
-          // with no idea why nothing happened).
-          onError?.(WHISPER_TRANSCRIBE_FAILED);
+          reportError(WHISPER_TRANSCRIBE_FAILED);
         })
         .finally(() => {
           busyRef.current = false;
+          setTranscribing(false);
         });
       return;
     }
@@ -204,20 +216,23 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
     handleRef.current?.stop();
   };
 
+  beginRef.current = begin;
+  endRef.current = end;
+
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || event.repeat) return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       event.preventDefault();
-      begin();
+      beginRef.current();
     };
     const up = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       event.preventDefault();
-      end();
+      endRef.current();
     };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
@@ -225,7 +240,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  });
+  }, []);
 
   const sttHint = (() => {
     if (desktop) return 'Desktop Whisper · or hold SPACEBAR';
@@ -269,12 +284,21 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       >
         <span className="flex items-center gap-2">
           {holding ? <Mic size={compact ? 16 : 22} /> : <MicOff size={compact ? 16 : 22} />}
-          {holding ? 'LISTENING…' : 'HOLD TO TALK'}
+          {holding ? 'LISTENING…' : transcribing ? 'TRANSCRIBING…' : 'HOLD TO TALK'}
         </span>
         {!compact && (
           <span className="text-[11px] font-normal opacity-80">{sttHint}</span>
         )}
       </button>
+      {lastError && (
+        <div
+          data-testid="ptt-error"
+          className="text-[10px] text-center text-amber-300 bg-amber-950/50 border border-amber-800/60 rounded px-2 py-0.5 font-mono"
+          aria-live="polite"
+        >
+          {lastError}
+        </div>
+      )}
       {accurateSpeech && !desktop && (
         <div
           data-testid="accurate-speech-status"

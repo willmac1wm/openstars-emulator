@@ -88,8 +88,10 @@ export function createSpeechRecognition(handlers: {
   }
 
   let callsigns = handlers.callsigns ? [...handlers.callsigns] : [];
+  let callsignsKey = callsigns.join(',');
   let lastInterim: SpeechResultPayload | null = null;
   let emittedFinal = false;
+  let active = false;
   const recognition = new Ctor();
   recognition.lang = 'en-US';
   recognition.continuous = true;
@@ -152,6 +154,7 @@ export function createSpeechRecognition(handlers: {
   };
 
   recognition.onend = () => {
+    active = false;
     // Chrome frequently stops recognition on PTT release without flipping the
     // last interim result to isFinal=true. Promote it so the command isn't dropped.
     if (!emittedFinal && lastInterim && lastInterim.transcript.trim()) {
@@ -167,17 +170,36 @@ export function createSpeechRecognition(handlers: {
     engine: 'webspeech',
     supported: true,
     setCallsigns: (next) => {
+      const nextKey = next.join(',');
+      if (nextKey === callsignsKey) return;
+      callsignsKey = nextKey;
       callsigns = [...next];
-      applyGrammars(recognition, callsigns);
+      // Never mutate recognition.grammars mid-utterance — wait for next start().
+      if (!active) applyGrammars(recognition, callsigns);
     },
     start: () => {
       lastInterim = null;
       emittedFinal = false;
       applyGrammars(recognition, callsigns);
       try {
+        active = true;
         recognition.start();
       } catch {
-        /* already started */
+        // Previous session was still winding down — abort and restart cleanly.
+        try {
+          recognition.abort();
+        } catch {
+          /* ignore */
+        }
+        window.setTimeout(() => {
+          try {
+            active = true;
+            recognition.start();
+          } catch (err) {
+            active = false;
+            handlers.onError?.(err instanceof Error ? `Mic failed to start: ${err.message}` : 'Mic failed to start.');
+          }
+        }, 60);
       }
     },
     stop: () => {
@@ -188,6 +210,7 @@ export function createSpeechRecognition(handlers: {
       }
     },
     abort: () => {
+      active = false;
       try {
         recognition.abort();
       } catch {
