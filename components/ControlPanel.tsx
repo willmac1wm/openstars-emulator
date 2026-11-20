@@ -302,9 +302,24 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 <Plane size={12} className="text-green-500" /> {selectedAircraft.callsign}
               </div>
               <div className="flex gap-2 text-[10px] text-gray-400">
-                <span>ALT:{Math.floor(selectedAircraft.altitude * 100)}</span>
-                <span>SPD:{Math.floor(selectedAircraft.speed)}</span>
-                <span>HDG:{selectedAircraft.heading.toFixed(0)}°</span>
+                <span>
+                  ALT:{Math.floor(selectedAircraft.altitude * 100)}
+                  {Math.abs(selectedAircraft.targetAltitude - selectedAircraft.altitude) > 0.5 && (
+                    <span className="text-amber-300">→{Math.round(selectedAircraft.targetAltitude * 100)}</span>
+                  )}
+                </span>
+                <span>
+                  SPD:{Math.floor(selectedAircraft.speed)}
+                  {Math.abs(selectedAircraft.targetSpeed - selectedAircraft.speed) > 1 && (
+                    <span className="text-fuchsia-300">→{Math.round(selectedAircraft.targetSpeed)}</span>
+                  )}
+                </span>
+                <span>
+                  HDG:{selectedAircraft.heading.toFixed(0)}°
+                  {Math.abs(selectedAircraft.targetHeading - selectedAircraft.heading) > 1 && (
+                    <span className="text-cyan-300">→{Math.round(selectedAircraft.targetHeading)}°</span>
+                  )}
+                </span>
               </div>
             </>
           ) : (

@@ -1,11 +1,12 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Aircraft, AlertLevel } from '../types';
 import {
   MAP_SIZE,
   WAYPOINTS,
   GATES,
   GATE_RADIUS,
+  NM_TO_PX,
   COLOR_SECONDARY,
   COLOR_PRIMARY,
   COLOR_WARNING,
@@ -16,6 +17,13 @@ import { gateAltLabel } from '../services/exitScoring';
 import { nmToPx, separationRingRadiusPx } from '../sim/geometry';
 import DataBlock from './DataBlock';
 
+interface RblPoint {
+  x: number;
+  y: number;
+  /** Optional aircraft id so the RBL anchor tracks the moving target. */
+  aircraftId?: string;
+}
+
 interface RadarScopeProps {
   aircraft: Aircraft[];
   onSelectAircraft: (id: string) => void;
@@ -24,9 +32,24 @@ interface RadarScopeProps {
   /** When true, draw a 3 NM J-ring around every target. */
   showJRings?: boolean;
   highlightGateId?: string | null;
+  /** Predicted Track Line length in minutes (1, 2, or 3). */
+  ptlMinutes?: number;
+  /** Splat T (*T) Range/Bearing Line mode active. */
+  rblMode?: boolean;
+  onExitRblMode?: () => void;
+  /** Double-click a gate fix to vector the selected aircraft direct. */
+  onDirectToFix?: (fixId: string, headingDeg: number) => void;
+  /** Right-click a data block to rotate its leader line (STARS offset). */
+  onOffsetLeader?: (id: string, nextDir: number) => void;
 }
 
 const JRING_R_PX = separationRingRadiusPx(3);
+
+function computeBearingDeg(from: { x: number; y: number }, to: { x: number; y: number }): number {
+  let deg = Math.round((Math.atan2(to.x - from.x, -(to.y - from.y)) * 180) / Math.PI);
+  if (deg <= 0) deg += 360;
+  return deg;
+}
 
 const RadarScope: React.FC<RadarScopeProps> = ({
   aircraft,
@@ -35,7 +58,142 @@ const RadarScope: React.FC<RadarScopeProps> = ({
   showPrimaryData,
   showJRings = false,
   highlightGateId = null,
+  ptlMinutes = 1,
+  rblMode = false,
+  onExitRblMode,
+  onDirectToFix,
+  onOffsetLeader,
 }) => {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [rblStart, setRblStart] = useState<RblPoint | null>(null);
+  const [rblEnd, setRblEnd] = useState<RblPoint | null>(null);
+  const [rblPinned, setRblPinned] = useState(false);
+  const draggingRblRef = useRef(false);
+
+  // Esc clears any active or pinned RBL line immediately.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        draggingRblRef.current = false;
+        setRblStart(null);
+        setRblEnd(null);
+        setRblPinned(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Re-opening RBL clears the previous pinned line so you start fresh.
+  useEffect(() => {
+    if (rblMode && rblPinned) {
+      setRblStart(null);
+      setRblEnd(null);
+      setRblPinned(false);
+    }
+  }, [rblMode, rblPinned]);
+
+  const clientToSvg = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const scale = Math.min(rect.width / MAP_SIZE, rect.height / MAP_SIZE);
+    const offsetX = (rect.width - MAP_SIZE * scale) / 2;
+    const offsetY = (rect.height - MAP_SIZE * scale) / 2;
+    return {
+      x: Math.max(0, Math.min(MAP_SIZE, (clientX - rect.left - offsetX) / scale)),
+      y: Math.max(0, Math.min(MAP_SIZE, (clientY - rect.top - offsetY) / scale)),
+    };
+  };
+
+  const resolveRblPoint = (pt: RblPoint | null): { x: number; y: number } | null => {
+    if (!pt) return null;
+    if (pt.aircraftId) {
+      const ac = aircraft.find((a) => a.id === pt.aircraftId);
+      if (ac) return { x: ac.x, y: ac.y };
+    }
+    return { x: pt.x, y: pt.y };
+  };
+
+  const snapToNearestTarget = (pos: { x: number; y: number }): RblPoint => {
+    let bestAc: Aircraft | null = null;
+    let bestDist = 22;
+    for (const ac of aircraft) {
+      const d = Math.hypot(ac.x - pos.x, ac.y - pos.y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestAc = ac;
+      }
+    }
+    if (bestAc) return { x: bestAc.x, y: bestAc.y, aircraftId: bestAc.id };
+    for (const wp of WAYPOINTS) {
+      if (Math.hypot(wp.x - pos.x, wp.y - pos.y) < 18) {
+        return { x: wp.x, y: wp.y };
+      }
+    }
+    return pos;
+  };
+
+  const handleSvgPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    const wantRbl = rblMode || e.shiftKey;
+    if (!wantRbl) {
+      if (rblPinned) {
+        setRblStart(null);
+        setRblEnd(null);
+        setRblPinned(false);
+      }
+      return;
+    }
+    const pos = clientToSvg(e.clientX, e.clientY);
+    if (!pos) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const snapped = snapToNearestTarget(pos);
+    // In RBL mode, support both click-to-click (trackpad friendly) and click-and-drag:
+    // If we already placed point A via a click, a second click places point B and pins it.
+    if (rblMode && rblStart && !draggingRblRef.current && !rblPinned) {
+      setRblEnd(snapped);
+      setRblPinned(true);
+      onExitRblMode?.();
+      return;
+    }
+    setRblStart(snapped);
+    setRblEnd(snapped);
+    setRblPinned(false);
+    draggingRblRef.current = true;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+
+  const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const trackingClickToClick = rblMode && Boolean(rblStart) && !rblPinned;
+    if (!draggingRblRef.current && !trackingClickToClick) return;
+    const pos = clientToSvg(e.clientX, e.clientY);
+    if (!pos) return;
+    setRblEnd(snapToNearestTarget(pos));
+  };
+
+  const handleSvgPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!draggingRblRef.current) return;
+    draggingRblRef.current = false;
+    const pos = clientToSvg(e.clientX, e.clientY);
+    if (!pos) return;
+    const snapped = snapToNearestTarget(pos);
+    const draggedDist = rblStart ? Math.hypot(snapped.x - rblStart.x, snapped.y - rblStart.y) : 0;
+    if (rblMode) {
+      if (draggedDist > 10) {
+        // Finished a drag in RBL mode → pin the measurement.
+        setRblEnd(snapped);
+        setRblPinned(true);
+        onExitRblMode?.();
+      }
+      // If it was just a tap/click (draggedDist <= 10), stay in RBL mode waiting for the 2nd click!
+    } else {
+      // Shift-drag clears on release.
+      setRblStart(null);
+      setRblEnd(null);
+    }
+  };
   
   // Render Gates (Exit Lines)
   const gateLines = useMemo(() => {
@@ -251,11 +409,23 @@ const RadarScope: React.FC<RadarScopeProps> = ({
     return offsets;
   }, [aircraft]);
 
+  const rblA = resolveRblPoint(rblStart);
+  const rblB = resolveRblPoint(rblEnd);
+  const showRbl = Boolean(rblA && rblB && Math.hypot(rblB.x - rblA.x, rblB.y - rblA.y) > 4);
+  const rblDistNm = showRbl && rblA && rblB ? Math.hypot(rblB.x - rblA.x, rblB.y - rblA.y) / NM_TO_PX : 0;
+  const rblBearing = showRbl && rblA && rblB ? computeBearingDeg(rblA, rblB) : 0;
+  const selectedAc = aircraft.find((a) => a.isSelected) || null;
+
   return (
     <svg 
+      ref={svgRef}
       viewBox={`0 0 ${MAP_SIZE} ${MAP_SIZE}`} 
-      className="w-full h-full select-none bg-black block"
+      className={`w-full h-full select-none bg-black block ${rblMode ? 'cursor-crosshair' : ''}`}
       preserveAspectRatio="xMidYMid meet"
+      onPointerDown={handleSvgPointerDown}
+      onPointerMove={handleSvgPointerMove}
+      onPointerUp={handleSvgPointerUp}
+      onPointerCancel={handleSvgPointerUp}
     >
       {/* Background Grid / Range Rings (10 / 20 / 30 NM — same NM→px as J-rings) */}
       <circle cx={cx} cy={cy} r={nmToPx(10)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
@@ -268,7 +438,19 @@ const RadarScope: React.FC<RadarScopeProps> = ({
       <g id="map-layer">
         {gateLines}
         {WAYPOINTS.map(wp => (
-          <g key={wp.id} transform={`translate(${wp.x}, ${wp.y})`}>
+          <g
+            key={wp.id}
+            transform={`translate(${wp.x}, ${wp.y})`}
+            className={selectedAc && onDirectToFix ? 'cursor-pointer' : undefined}
+            onDoubleClick={(e) => {
+              if (!selectedAc || !onDirectToFix) return;
+              e.stopPropagation();
+              const hdg = computeBearingDeg({ x: selectedAc.x, y: selectedAc.y }, { x: wp.x, y: wp.y });
+              onDirectToFix(wp.id, hdg);
+            }}
+          >
+            {/* Larger hit area for easy double-click direct-to */}
+            <circle cx="0" cy="0" r="16" fill="transparent" />
             {wp.type === 'VOR' ? (
                <path d="M-6,5 L0,-7 L6,5 M-6,5 L6,5" fill="none" stroke={COLOR_SECONDARY} strokeWidth="1.5"/>
             ) : (
@@ -346,9 +528,18 @@ const RadarScope: React.FC<RadarScopeProps> = ({
               />
             )}
 
-            {/* Current Position Symbol */}
+            {/* True Speed-Scaled STARS Predicted Track Line (PTL): (speed/60) * ptlMinutes NM */}
             <g transform={`rotate(${ac.heading})`}>
-               <line x1="0" y1="0" x2="0" y2="-25" stroke={symbolColor} strokeWidth="1" />
+               <line
+                 data-testid="ptl-vector"
+                 x1="0"
+                 y1="0"
+                 x2="0"
+                 y2={-Math.max(12, (ac.speed / 60) * ptlMinutes * NM_TO_PX)}
+                 stroke={symbolColor}
+                 strokeWidth="1.25"
+                 opacity="0.85"
+               />
             </g>
             
             {/* UPDATED: Round Blue Ball Radius 4.5 */}
@@ -359,10 +550,46 @@ const RadarScope: React.FC<RadarScopeProps> = ({
             )}
 
             {/* Data Block */}
-            <DataBlock aircraft={ac} showPrimaryInfo={showPrimaryData} labelOffset={labelOffsets.get(ac.id)} />
+            <DataBlock
+              aircraft={ac}
+              showPrimaryInfo={showPrimaryData}
+              labelOffset={labelOffsets.get(ac.id)}
+              onOffsetLeader={onOffsetLeader}
+            />
           </g>
         );
       })}
+
+      {/* Splat T (*T) STARS Range/Bearing Line (RBL) */}
+      {showRbl && rblA && rblB && (
+        <g data-testid="rbl-overlay" style={{ pointerEvents: 'none' }}>
+          <line
+            x1={rblA.x}
+            y1={rblA.y}
+            x2={rblB.x}
+            y2={rblB.y}
+            stroke="#22d3ee"
+            strokeWidth="1.5"
+            strokeDasharray="5 4"
+          />
+          <circle cx={rblA.x} cy={rblA.y} r="3" fill="#22d3ee" />
+          <circle cx={rblB.x} cy={rblB.y} r="3" fill="#22d3ee" />
+          <g transform={`translate(${(rblA.x + rblB.x) / 2}, ${(rblA.y + rblB.y) / 2 - 10})`}>
+            <rect x="-56" y="-12" width="112" height="18" rx="3" fill="rgba(0,0,0,0.85)" stroke="#0891b2" strokeWidth="1" />
+            <text
+              x="0"
+              y="1"
+              fill="#67e8f9"
+              fontSize="11"
+              fontWeight="bold"
+              fontFamily="monospace"
+              textAnchor="middle"
+            >
+              {String(rblBearing).padStart(3, '0')}° / {rblDistNm.toFixed(1)} NM
+            </text>
+          </g>
+        </g>
+      )}
 
       {/* Radar Sweep Line */}
       <line 

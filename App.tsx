@@ -64,6 +64,7 @@ import {
   saturationNextIntervalMs,
   spawnSaturationAircraft,
 } from './services/saturation';
+import { performanceForType } from './services/aircraftPerformance';
 import {
   loadProfile,
   loadProgress,
@@ -116,6 +117,10 @@ const App: React.FC = () => {
   // UI States for Overlays
   const [isDataOpen, setIsDataOpen] = useState(true);
   const [showTapPad, setShowTapPad] = useState(true);
+  const [ptlMinutes, setPtlMinutes] = useState<1 | 2 | 3>(1);
+  const [rblMode, setRblMode] = useState(false);
+  const [exitToast, setExitToast] = useState<{ text: string; isError: boolean } | null>(null);
+  const exitToastTimerRef = useRef<number | null>(null);
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
   const [currentDifficulty, setCurrentDifficulty] = useState<string>('Expo');
   const [scenarioName, setScenarioName] = useState<string | null>(null);
@@ -219,11 +224,21 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Handler for Soft Keyboard Arrow Keys
+  // Handler for Soft Keyboard Arrow Keys & STARS right-click leader offset
   const handleMoveDataBlock = (direction: number) => {
     if (!selectedId) return;
     setAircraft(prev => prev.map(ac => ac.id === selectedId ? { ...ac, dataBlockDir: direction } : ac));
   };
+
+  const handleOffsetLeader = useCallback((id: string, nextDir: number) => {
+    setAircraft(prev => prev.map(ac => ac.id === id ? { ...ac, dataBlockDir: nextDir } : ac));
+  }, []);
+
+  const showExitFeedback = useCallback((text: string, isError: boolean) => {
+    setExitToast({ text, isError });
+    if (exitToastTimerRef.current) window.clearTimeout(exitToastTimerRef.current);
+    exitToastTimerRef.current = window.setTimeout(() => setExitToast(null), 4500);
+  }, []);
 
   const startGame = async (options: StartOptions | string) => {
     const difficulty = typeof options === 'string' ? options : options.difficulty;
@@ -599,7 +614,12 @@ const App: React.FC = () => {
     if (prev && prev.cmd === cmd && now - prev.at < 450) return;
     lastIssuedRef.current = { cmd, at: now };
 
-    // Display toggles (JRING / 3NM / RING) — no aircraft callsign.
+    // Display toggles (JRING / 3NM / RING) and Splat T (*T) RBL — no aircraft callsign.
+    if (cmd === '*T' || cmd === 'RBL') {
+      setRblMode((v) => !v);
+      addLog('SPLAT T (*T) — DRAG BETWEEN TWO POINTS FOR RANGE/BEARING', 'system');
+      return;
+    }
     const displayCmd = parseDisplayCommand(cmd);
     if (displayCmd?.kind === 'jrings') {
       const next =
@@ -760,12 +780,16 @@ const App: React.FC = () => {
   }, [arcadeBanner]);
 
   const updatePhysics = useCallback((deltaSeconds: number) => {
+    const nowMs = Date.now();
+    const HANDOFF_CLEAR_MS = 6000;
     setAircraft(prev => {
       let activeCount = 0;
       // Tutorial freezes motion (and scoring side-effects) so planes never race off-scope.
       const simScale = tutorialActiveRef.current ? 0 : timeScale;
       
-      const updated = prev.map(ac => {
+      const updated = prev
+        .filter((ac) => !(ac.status === 'HANDOFF' && ac.handoffAt && nowMs - ac.handoffAt >= HANDOFF_CLEAR_MS))
+        .map(ac => {
         if (ac.status === 'HANDOFF') {
              const edgeBuffer = 10;
              if (ac.x <= edgeBuffer || ac.x >= MAP_SIZE - edgeBuffer || ac.y <= edgeBuffer || ac.y >= MAP_SIZE - edgeBuffer) {
@@ -779,6 +803,7 @@ const App: React.FC = () => {
           return { ...ac, alertLevel: AlertLevel.NONE };
         }
 
+        const perf = performanceForType(ac.type);
         let newHeading = ac.heading;
         let newAlt = ac.altitude;
         let newSpeed = ac.speed;
@@ -787,8 +812,7 @@ const App: React.FC = () => {
            let diff = ac.targetHeading - ac.heading;
            while (diff <= -180) diff += 360;
            while (diff > 180) diff -= 360;
-           const turnRatePerSec = 3.0; 
-           const turnAmount = turnRatePerSec * deltaSeconds * simScale;
+           const turnAmount = perf.turnRateDegPerSec * deltaSeconds * simScale;
            let turnDir = 0; 
            if (ac.turnDirection === 'LEFT') turnDir = -1;
            else if (ac.turnDirection === 'RIGHT') turnDir = 1;
@@ -803,13 +827,13 @@ const App: React.FC = () => {
         }
 
         if (ac.altitude !== ac.targetAltitude) {
-            const climbRatePerSec = 0.25 * simScale; 
+            const climbRatePerSec = perf.climbRateHundredsPerSec * simScale; 
             if (Math.abs(ac.targetAltitude - ac.altitude) < climbRatePerSec * deltaSeconds) newAlt = ac.targetAltitude;
             else newAlt += (ac.targetAltitude > ac.altitude ? 1 : -1) * climbRatePerSec * deltaSeconds;
         }
 
         if (ac.speed !== ac.targetSpeed) {
-            const accRatePerSec = 2.5 * simScale; 
+            const accRatePerSec = perf.accelKtPerSec * simScale; 
             if (Math.abs(ac.targetSpeed - ac.speed) < accRatePerSec * deltaSeconds) newSpeed = ac.targetSpeed;
             else newSpeed += (ac.targetSpeed > ac.speed ? 1 : -1) * accRatePerSec * deltaSeconds;
         }
@@ -826,6 +850,7 @@ const App: React.FC = () => {
 
         let status = ac.status;
         let handoffResult = ac.handoffResult;
+        let handoffAt = ac.handoffAt;
 
         const distFromCenter = Math.sqrt(Math.pow(newX - CENTER, 2) + Math.pow(newY - CENTER, 2));
         
@@ -837,6 +862,7 @@ const App: React.FC = () => {
             if (angleDeg < 0) angleDeg += 360;
 
             status = 'HANDOFF';
+            handoffAt = nowMs;
 
             // One evaluation per exit: a clean exit must meet ALL criteria
             // (right gate, centred, legal altitude). Wrong-alt exits earn
@@ -862,6 +888,7 @@ const App: React.FC = () => {
               playSuccessChime();
               addLog(`${ac.callsign} EXIT ${exit.gateId} (TOUCHED SIDES). +${exit.points} — ${exit.reason}`);
               setScoreFlash(`${ac.callsign} EXIT +${exit.points}`);
+              showExitFeedback(`${ac.callsign} SLOPPY EXIT (+${exit.points}) — ${exit.reason}`, false);
             } else {
               // wrong-alt / wrong-gate / off-course — penalty only, no exit points.
               if (exit.kind === 'wrong-alt') setStats((s) => ({ ...s, wrongAlt: s.wrongAlt + 1 }));
@@ -869,6 +896,7 @@ const App: React.FC = () => {
               playFailTone();
               addLog(`${exit.reason} ${exit.points}`);
               setScoreFlash(`${ac.callsign} ${exit.handoffResult} ${exit.points}`);
+              showExitFeedback(`${ac.callsign} ${exit.handoffResult} (${exit.points}) — ${exit.reason}`, true);
               setStats((s) => ({
                 ...s,
                 incidents: [...s.incidents, {
@@ -881,7 +909,7 @@ const App: React.FC = () => {
             }
         }
 
-        return { ...ac, x: newX, y: newY, heading: newHeading, altitude: newAlt, speed: newSpeed, history: newHistory, status, turnDirection: ac.turnDirection, alertLevel: AlertLevel.NONE, handoffResult };
+        return { ...ac, x: newX, y: newY, heading: newHeading, altitude: newAlt, speed: newSpeed, history: newHistory, status, turnDirection: ac.turnDirection, alertLevel: AlertLevel.NONE, handoffResult, handoffAt };
       });
       
       if (prev.length > 0 && activeCount === 0 && !tutorialActiveRef.current && arcadeVariantRef.current !== 'saturation') {
@@ -890,7 +918,7 @@ const App: React.FC = () => {
 
       return tutorialActiveRef.current ? updated : checkSeparation(updated);
     });
-  }, [addLog, timeScale, endGame, playMode]);
+  }, [addLog, timeScale, endGame, playMode, showExitFeedback]);
 
   const checkSeparation = (aircraftList: Aircraft[]): Aircraft[] => {
     const newAircraft = [...aircraftList];
@@ -1076,6 +1104,46 @@ const App: React.FC = () => {
   }, [returnToMenu, startArcadeRound]);
 
   const selectedAircraft = aircraft.find(ac => ac.id === selectedId) || null;
+
+  // Keyboard quick-select: Tab / Shift+Tab cycles active aircraft (alerts first); Escape exits *T RBL / blurs input so Space PTT works.
+  useEffect(() => {
+    if (gameState !== SimulationState.RUNNING && gameState !== SimulationState.PAUSED) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setRblMode(false);
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const active = aircraftRef.current
+        .filter((a) => a.status !== 'HANDOFF' && a.status !== 'CRASH')
+        .sort((a, b) => {
+          if (b.alertLevel !== a.alertLevel) return b.alertLevel - a.alertLevel;
+          return a.callsign.localeCompare(b.callsign);
+        });
+      if (!active.length) return;
+      e.preventDefault();
+      const idx = active.findIndex((a) => a.id === selectedId);
+      const nextIdx = e.shiftKey
+        ? (idx <= 0 ? active.length - 1 : idx - 1)
+        : (idx + 1) % active.length;
+      const nextId = active[nextIdx].id;
+      setSelectedId(nextId);
+      setAircraft((prev) => prev.map((ac) => ({ ...ac, isSelected: ac.id === nextId })));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [gameState, selectedId]);
+
+  const handleDirectToFix = useCallback((fixId: string, headingDeg: number) => {
+    const sel = aircraftRef.current.find((a) => a.id === selectedId);
+    if (!sel) return;
+    const hdgStr = String(headingDeg).padStart(3, '0');
+    handleCommandRef.current(`${sel.callsign} H${hdgStr}`);
+    addLog(`${sel.callsign} DIRECT ${fixId} — HEADING ${hdgStr}`, 'system');
+  }, [selectedId, addLog]);
 
   const finishArcadeSummary = () => {
     returnToMenu({ attract: false });
@@ -1281,6 +1349,11 @@ const App: React.FC = () => {
                   showPrimaryData={showPrimaryData}
                   showJRings={showJRings}
                   highlightGateId={selectedAircraft?.destination ?? null}
+                  ptlMinutes={ptlMinutes}
+                  rblMode={rblMode}
+                  onExitRblMode={() => setRblMode(false)}
+                  onDirectToFix={handleDirectToFix}
+                  onOffsetLeader={handleOffsetLeader}
                 />
 
                 {/* Seed is shown in the ControlPanel header instead of as an
@@ -1306,6 +1379,19 @@ const App: React.FC = () => {
                     <div className={`text-3xl md:text-5xl font-bold drop-shadow-[0_0_20px_rgba(20,241,149,0.8)] animate-in zoom-in ${scoreFlash.includes('LOSS') ? 'text-red-400' : 'text-green-400'}`}>
                       {scoreFlash}
                     </div>
+                  </div>
+                )}
+
+                {exitToast && (
+                  <div
+                    data-testid="exit-reason-toast"
+                    className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-40 max-w-[92%] px-3 py-1.5 rounded border text-xs font-mono font-bold shadow-lg pointer-events-none ${
+                      exitToast.isError
+                        ? 'bg-red-950/90 border-red-500 text-red-200'
+                        : 'bg-amber-950/90 border-amber-500 text-amber-100'
+                    }`}
+                  >
+                    {exitToast.text}
                   </div>
                 )}
                 
@@ -1345,6 +1431,29 @@ const App: React.FC = () => {
                          </button>
                        ))}
                      </div>
+                     <button
+                        type="button"
+                        data-testid="ptl-toggle"
+                        title="STARS Predicted Track Line length (1, 2, or 3 minutes ahead)"
+                        onClick={() => setPtlMinutes((m) => (m === 1 ? 2 : m === 2 ? 3 : 1))}
+                        className="text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all h-[26px] bg-gray-900/60 border-gray-700 text-green-300 hover:border-green-500"
+                     >
+                        PTL {ptlMinutes}M
+                     </button>
+                     <button
+                        type="button"
+                        data-testid="splat-t-toggle"
+                        aria-pressed={rblMode}
+                        title="Range/Bearing Line (STARS *T) — click two points on the scope, or Shift+drag anytime"
+                        onClick={() => setRblMode((v) => !v)}
+                        className={`text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all h-[26px] ${
+                          rblMode
+                            ? 'bg-cyan-900/70 border-cyan-400 text-cyan-100 shadow-[0_0_10px_rgba(34,211,238,0.35)]'
+                            : 'bg-gray-900/60 border-gray-700 text-cyan-300 hover:border-cyan-500'
+                        }`}
+                     >
+                        RBL
+                     </button>
                      <button
                         type="button"
                         data-testid="jring-toggle"

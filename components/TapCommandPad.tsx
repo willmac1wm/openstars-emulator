@@ -16,9 +16,9 @@ interface TapCommandPadProps {
   onIssue: (command: string) => void;
 }
 
-/** Larger dial; stacked H/A/S sections still fit 1024×640 with typed line + Issue. */
-const DIAL_SIZE = 128;
-const DIAL_R = DIAL_SIZE / 2 - 6;
+/** Compact dial so Heading + Altitude + Speed + Issue all fit without scrolling. */
+const DIAL_SIZE = 96;
+const DIAL_R = DIAL_SIZE / 2 - 5;
 
 function angleFromPointer(
   clientX: number,
@@ -187,18 +187,13 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
       className="border border-amber-700/50 bg-amber-950/20 rounded flex flex-col min-h-0 flex-1"
       data-testid="tap-command-pad"
     >
-      <div className="flex-1 min-h-0 overflow-y-auto px-1.5 pt-1 pb-0.5 space-y-1" data-testid="tap-build-area">
-        <div className="text-[8px] uppercase tracking-wider text-amber-300 leading-none">
-          Tap clearance · shortest turn · Issue once
-        </div>
-
+      <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1 space-y-1" data-testid="tap-build-area">
         {/* HEADING — cyan */}
         <section
-          className="rounded border border-cyan-600/70 bg-cyan-950/25 p-1 space-y-1"
+          className="rounded border border-cyan-600/70 bg-cyan-950/25 px-1.5 py-1"
           data-testid="tap-heading-section"
           aria-label="Heading"
         >
-          <div className="text-[9px] font-bold uppercase tracking-wider text-cyan-300 px-0.5">Heading</div>
           <div className="flex items-center gap-2">
             <div className="shrink-0 relative mx-auto" style={{ width: DIAL_SIZE, height: DIAL_SIZE }}>
               <svg
@@ -233,8 +228,8 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                 />
                 {[0, 90, 180, 270].map((deg) => {
                   const rad = ((deg - 90) * Math.PI) / 180;
-                  const x1 = DIAL_SIZE / 2 + Math.cos(rad) * (DIAL_R - 8);
-                  const y1 = DIAL_SIZE / 2 + Math.sin(rad) * (DIAL_R - 8);
+                  const x1 = DIAL_SIZE / 2 + Math.cos(rad) * (DIAL_R - 7);
+                  const y1 = DIAL_SIZE / 2 + Math.sin(rad) * (DIAL_R - 7);
                   const x2 = DIAL_SIZE / 2 + Math.cos(rad) * DIAL_R;
                   const y2 = DIAL_SIZE / 2 + Math.sin(rad) * DIAL_R;
                   return (
@@ -244,21 +239,21 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                 {Array.from({ length: 12 }, (_, i) => i * 30).map((deg) => {
                   if (deg % 90 === 0) return null;
                   const rad = ((deg - 90) * Math.PI) / 180;
-                  const x1 = DIAL_SIZE / 2 + Math.cos(rad) * (DIAL_R - 5);
-                  const y1 = DIAL_SIZE / 2 + Math.sin(rad) * (DIAL_R - 5);
+                  const x1 = DIAL_SIZE / 2 + Math.cos(rad) * (DIAL_R - 4);
+                  const y1 = DIAL_SIZE / 2 + Math.sin(rad) * (DIAL_R - 4);
                   const x2 = DIAL_SIZE / 2 + Math.cos(rad) * DIAL_R;
                   const y2 = DIAL_SIZE / 2 + Math.sin(rad) * DIAL_R;
                   return (
                     <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#155e75" strokeWidth={1} />
                   );
                 })}
-                <text x={DIAL_SIZE / 2} y={14} textAnchor="middle" fill="#67e8f9" fontSize={9} fontFamily="monospace">
+                <text x={DIAL_SIZE / 2} y={13} textAnchor="middle" fill="#67e8f9" fontSize={8} fontFamily="monospace">
                   N
                 </text>
                 <g transform={`rotate(${currentHdg} ${DIAL_SIZE / 2} ${DIAL_SIZE / 2})`}>
                   <line
                     x1={DIAL_SIZE / 2}
-                    y1={DIAL_SIZE / 2 - DIAL_R + 10}
+                    y1={DIAL_SIZE / 2 - DIAL_R + 8}
                     x2={DIAL_SIZE / 2}
                     y2={DIAL_SIZE / 2 - DIAL_R + 1}
                     stroke="#22d3ee"
@@ -268,15 +263,15 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                 </g>
                 <g transform={`rotate(${needleDeg} ${DIAL_SIZE / 2} ${DIAL_SIZE / 2})`}>
                   <polygon
-                    points={`${DIAL_SIZE / 2},${DIAL_SIZE / 2 - DIAL_R + 12} ${DIAL_SIZE / 2 - 5},${DIAL_SIZE / 2 + 4} ${DIAL_SIZE / 2 + 5},${DIAL_SIZE / 2 + 4}`}
+                    points={`${DIAL_SIZE / 2},${DIAL_SIZE / 2 - DIAL_R + 10} ${DIAL_SIZE / 2 - 4},${DIAL_SIZE / 2 + 3} ${DIAL_SIZE / 2 + 4},${DIAL_SIZE / 2 + 3}`}
                     fill={targetHdg != null ? '#67e8f9' : '#4b5563'}
                     data-testid="heading-needle"
                   />
                 </g>
-                <circle cx={DIAL_SIZE / 2} cy={DIAL_SIZE / 2} r={3} fill="#e5e7eb" />
+                <circle cx={DIAL_SIZE / 2} cy={DIAL_SIZE / 2} r={2.5} fill="#e5e7eb" />
               </svg>
               <div
-                className="absolute inset-x-0 bottom-0.5 text-center font-mono text-[11px] text-cyan-100 pointer-events-none"
+                className="absolute inset-x-0 bottom-0 text-center font-mono text-[10px] text-cyan-100 pointer-events-none"
                 data-testid="heading-readout"
               >
                 {targetHdg != null
@@ -285,13 +280,14 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
               </div>
             </div>
 
-            <div className="flex flex-col gap-1 min-w-[4.5rem]">
+            <div className="flex flex-col gap-1 flex-1 min-w-[4.5rem]">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-cyan-300 leading-none">Heading</div>
               <button
                 type="button"
                 data-testid="turn-left"
                 aria-label={`Nudge heading left ${DIAL_NUDGE_DEG} degrees`}
                 title={`Nudge heading left ${DIAL_NUDGE_DEG}°`}
-                className={`py-1.5 rounded border text-[11px] font-bold ${
+                className={`py-1 rounded border text-[11px] font-bold ${
                   turnForced === 'LEFT'
                     ? 'bg-cyan-700 border-cyan-400 text-white'
                     : autoTurn === 'LEFT' && targetHdg != null && turnForced == null
@@ -307,7 +303,7 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
                 data-testid="turn-right"
                 aria-label={`Nudge heading right ${DIAL_NUDGE_DEG} degrees`}
                 title={`Nudge heading right ${DIAL_NUDGE_DEG}°`}
-                className={`py-1.5 rounded border text-[11px] font-bold ${
+                className={`py-1 rounded border text-[11px] font-bold ${
                   turnForced === 'RIGHT'
                     ? 'bg-cyan-700 border-cyan-400 text-white'
                     : autoTurn === 'RIGHT' && targetHdg != null && turnForced == null
@@ -331,24 +327,24 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
           </div>
         </section>
 
-        {/* ALTITUDE — amber */}
+        {/* ALTITUDE — amber (single compact row) */}
         <section
-          className="rounded border border-amber-600/70 bg-amber-950/30 p-1 space-y-1"
+          className="rounded border border-amber-600/70 bg-amber-950/30 px-1.5 py-1 flex items-center gap-1.5"
           data-testid="tap-altitude-section"
           aria-label="Altitude"
         >
-          <div className="text-[9px] font-bold uppercase tracking-wider text-amber-300 px-0.5">Altitude</div>
-          <div className="flex flex-wrap gap-1">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-amber-300 w-7 shrink-0">ALT</div>
+          <div className="grid grid-cols-4 gap-1 flex-1">
             {legalAlts.map((alt) => (
               <button
                 key={alt}
                 type="button"
                 data-testid={`alt-${alt}`}
                 onClick={() => toggleAltitude(alt)}
-                className={`min-w-[3.25rem] px-2 py-1.5 rounded border text-xs font-mono font-bold ${
+                className={`px-1 py-1 rounded border text-[11px] font-mono font-bold ${
                   altitude === alt
                     ? 'bg-amber-600 border-amber-300 text-black'
-                    : 'border-amber-800/80 text-amber-100/80'
+                    : 'border-amber-800/80 text-amber-100/80 hover:border-amber-600'
                 }`}
               >
                 A{String(alt).padStart(3, '0')}
@@ -357,24 +353,24 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
           </div>
         </section>
 
-        {/* SPEED — magenta */}
+        {/* SPEED — magenta (single compact row) */}
         <section
-          className="rounded border border-fuchsia-600/70 bg-fuchsia-950/25 p-1 space-y-1"
+          className="rounded border border-fuchsia-600/70 bg-fuchsia-950/25 px-1.5 py-1 flex items-center gap-1.5"
           data-testid="tap-speed-section"
           aria-label="Speed"
         >
-          <div className="text-[9px] font-bold uppercase tracking-wider text-fuchsia-300 px-0.5">Speed</div>
-          <div className="flex flex-wrap gap-1">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-fuchsia-300 w-7 shrink-0">SPD</div>
+          <div className="grid grid-cols-3 gap-1 flex-1">
             {[180, 210, 250].map((spd) => (
               <button
                 key={spd}
                 type="button"
                 data-testid={`spd-${spd}`}
                 onClick={() => toggleSpeed(spd)}
-                className={`min-w-[3.25rem] px-2 py-1.5 rounded border text-xs font-mono font-bold ${
+                className={`px-1 py-1 rounded border text-[11px] font-mono font-bold ${
                   speed === spd
                     ? 'bg-fuchsia-600 border-fuchsia-300 text-black'
-                    : 'border-fuchsia-800/80 text-fuchsia-100/80'
+                    : 'border-fuchsia-800/80 text-fuchsia-100/80 hover:border-fuchsia-600'
                 }`}
               >
                 S{spd}
@@ -387,7 +383,7 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
       {/* Sticky preview + ISSUE — always visible; only path that sends a command */}
       <div className="shrink-0 border-t border-amber-900/40 px-1.5 py-1 space-y-1 bg-amber-950/40">
         <div
-          className="bg-black/70 border border-gray-800 rounded px-2 py-1 text-[10px] text-amber-100 min-h-[1.75rem] leading-snug line-clamp-2"
+          className="bg-black/70 border border-gray-800 rounded px-2 py-0.5 text-[10px] text-amber-100 min-h-[1.4rem] leading-snug line-clamp-2"
           data-testid="tap-phraseology"
         >
           {preview.phraseology}
@@ -401,7 +397,7 @@ const TapCommandPad: React.FC<TapCommandPadProps> = ({ aircraft, onIssue }) => {
             e.stopPropagation();
             issue();
           }}
-          className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold py-2 rounded text-sm"
+          className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-black font-bold py-1.5 rounded text-xs"
         >
           ISSUE CLEARANCE
         </button>

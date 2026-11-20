@@ -214,6 +214,8 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
     };
     const up = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return;
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       event.preventDefault();
       end();
     };

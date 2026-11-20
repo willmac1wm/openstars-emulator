@@ -8,9 +8,11 @@ interface DataBlockProps {
   showPrimaryInfo: boolean;
   /** Extra shift (px, scope coords) applied to de-conflict stacked labels. */
   labelOffset?: { dx: number; dy: number };
+  /** STARS trackball offset: swing leader line to next 45° compass direction. */
+  onOffsetLeader?: (id: string, nextDir: number) => void;
 }
 
-const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelOffset }) => {
+const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelOffset, onOffsetLeader }) => {
   const { callsign, altitude, speed, status, isSelected, targetAltitude, destination, type, alertLevel, dataBlockDir, handoffResult } = aircraft;
   
   // Determine Color
@@ -61,20 +63,36 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelO
   if (aircraft.y + lineY + BLOCK_H > MAP_SIZE) lineY = -Math.abs(rawY) + (labelOffset?.dy ?? 0);
   if (aircraft.y + lineY < 10) lineY = Math.abs(rawY) + (labelOffset?.dy ?? 0);
 
+  const isClimbingOrDescending = Math.abs(targetAltitude - altitude) > 0.5;
+  const targetAltStr = Math.round(targetAltitude).toString().padStart(3, '0');
+
   return (
-    <g style={{ pointerEvents: 'none' }}>
+    <g>
       {/* Leader Line */}
       <line 
         x1={0} y1={0} 
         x2={lineX} y2={lineY} 
         stroke={color} 
         strokeWidth="1" 
+        style={{ pointerEvents: 'none' }}
       />
       
-      {/* Data Block Text Group */}
-      <g transform={`translate(${lineX}, ${lineY})`}>
+      {/* Data Block Text Group — right-click rotates leader line 45° (STARS offset) */}
+      <g
+        transform={`translate(${lineX}, ${lineY})`}
+        onContextMenu={(e) => {
+          if (!onOffsetLeader) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const nextDir = (Math.round(dataBlockDir / 45) * 45 + 45) % 360;
+          onOffsetLeader(aircraft.id, nextDir);
+        }}
+        style={{ cursor: onOffsetLeader ? 'pointer' : 'default' }}
+      >
+        {/* Invisible hit target for easy right-click leader offset */}
+        <rect x="0" y="-12" width="96" height="30" fill="transparent" />
         
-        {/* Row 1: Callsign */}
+        {/* Row 1: Callsign + assigned altitude arrow when climbing/descending */}
         <text 
           x="5" 
           y="0" 
@@ -82,7 +100,7 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelO
           fontSize="14" 
           fontWeight="bold" 
           fontFamily="monospace"
-          style={{ letterSpacing: '1px' }}
+          style={{ letterSpacing: '1px', pointerEvents: 'none' }}
         >
           {callsign}
         </text>
@@ -96,11 +114,12 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelO
                 fontSize="12" 
                 fontWeight="bold"
                 fontFamily="monospace"
+                style={{ pointerEvents: 'none' }}
             >
                 {handoffResult}
             </text>
         ) : (
-            /* Normal Data Row */
+            /* Normal Data Row — authentic STARS 2-line time-sharing */
             <>
                 {/* Row 2: [Alt/Dest] space [Speed/Type] */}
                 <text 
@@ -109,16 +128,16 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelO
                   fill={color} 
                   fontSize="14" 
                   fontFamily="monospace"
-                  style={{ letterSpacing: '1px' }}
+                  style={{ letterSpacing: '1px', pointerEvents: 'none' }}
                 >
                   <tspan>{leftField}</tspan>
                   <tspan x="45">{rightField}</tspan>
                 </text>
                 
-                {/* Optional: Vertical Rate Indicator if climbing/descending */}
-                {Math.abs(targetAltitude - altitude) > 0.5 && (
-                     <text x="80" y="0" fill={color} fontSize="10">
-                         {targetAltitude > altitude ? '↑' : '↓'}
+                {/* Climb/Descent trend + assigned altitude */}
+                {isClimbingOrDescending && (
+                     <text x="74" y="0" fill={color} fontSize="10" fontFamily="monospace" style={{ pointerEvents: 'none' }}>
+                         {targetAltitude > altitude ? `↑${targetAltStr}` : `↓${targetAltStr}`}
                      </text>
                 )}
             </>
