@@ -1,4 +1,5 @@
 import React from 'react';
+import { PhoneCall } from 'lucide-react';
 import PushToTalk from './PushToTalk';
 import TapCommandPad from './TapCommandPad';
 import { Aircraft } from '../types';
@@ -20,10 +21,24 @@ interface ExpoArcadeHUDProps {
   tutorial?: boolean;
   /** Callsigns on scope for desktop Whisper prompt biasing. */
   activeCallsigns?: string[];
+  /** Toggle visibility of the heading/altitude/speed dial pad. */
+  showTapPad?: boolean;
+  /** Endless Sector Saturation mode props. */
+  saturation?: boolean;
+  elapsedMs?: number;
+  activeAircraftCount?: number;
+  onCallForHelp?: () => void;
 }
 
 function formatClock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -41,6 +56,11 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
   onExit,
   tutorial = false,
   activeCallsigns = [],
+  showTapPad = true,
+  saturation = false,
+  elapsedMs = 0,
+  activeAircraftCount = 0,
+  onCallForHelp,
 }) => {
   return (
     <div
@@ -53,13 +73,23 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
           className={`font-mono text-lg font-bold px-2 py-0 rounded border ${
             tutorial
               ? 'text-cyan-300 border-cyan-800'
-              : remainingMs < 30000
-                ? 'text-red-400 border-red-700'
-                : 'text-green-300 border-green-800'
+              : saturation
+                ? 'text-amber-300 border-amber-700'
+                : remainingMs < 30000
+                  ? 'text-red-400 border-red-700'
+                  : 'text-green-300 border-green-800'
           }`}
         >
-          {tutorial ? 'HOW TO PLAY' : formatClock(remainingMs)}
+          {tutorial ? 'HOW TO PLAY' : saturation ? formatElapsed(elapsedMs) : formatClock(remainingMs)}
         </div>
+        {saturation && (
+          <div
+            data-testid="saturation-count"
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-700/80 bg-red-950/50 text-red-200 whitespace-nowrap"
+          >
+            {activeAircraftCount} A/C
+          </div>
+        )}
         {banner && (
           <div className="flex-1 min-w-0 truncate bg-amber-500/20 border border-amber-400 text-amber-100 text-[10px] font-bold px-1.5 py-0.5 rounded">
             {banner}
@@ -85,6 +115,18 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         )}
       </div>
 
+      {saturation && onCallForHelp && (
+        <button
+          type="button"
+          data-testid="call-for-help"
+          onClick={onCallForHelp}
+          className="shrink-0 w-full py-2 px-3 rounded border-2 border-red-500 bg-red-600 hover:bg-red-500 active:scale-[0.99] text-white font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_16px_rgba(239,68,68,0.45)] transition-all"
+        >
+          <PhoneCall size={14} />
+          CALL FOR HELP (REQUEST RELIEF)
+        </button>
+      )}
+
       <div className="shrink-0">
         <PushToTalk
           compact
@@ -104,7 +146,7 @@ const ExpoArcadeHUD: React.FC<ExpoArcadeHUDProps> = ({
         {liveTranscript || (tutorial ? 'Follow the Instructor box — Next / Replay / Skip' : 'Hold PTT and speak…')}
       </div>
 
-      <TapCommandPad aircraft={selected} onIssue={onIssue} />
+      {showTapPad && <TapCommandPad aircraft={selected} onIssue={onIssue} />}
     </div>
   );
 };

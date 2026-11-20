@@ -31,8 +31,9 @@ export const SPAWN_SEP_PX = 6 * NM_TO_PX;
  *   16 NM at 140 kt, 6x = ~69 s wall (NORDO, 90 s budget)
  *   10 NM at 250 kt, 6x = ~24 s wall (60-Second Challenge, 45 s budget)
  */
-export const EXPO_SPAWN_DISTANCE_NM = 16;
-export const EXPO_SIXTY_SPAWN_DISTANCE_NM = 10;
+export const MIN_GATE_SPAWN_DISTANCE_NM = 14;
+export const EXPO_SPAWN_DISTANCE_NM = 24;
+export const EXPO_SIXTY_SPAWN_DISTANCE_NM = 15;
 
 /**
  * Lesson spawn budget — Nov 2026 lesson-pacing fix (Option C: closer spawn
@@ -50,7 +51,7 @@ export const EXPO_SIXTY_SPAWN_DISTANCE_NM = 10;
  * plus thinking time (~6–8 min total), Controller (8) in ~10 min.
  * The old outer-ring spawn was ~75 NM: 1080–1350 s wall at 1x.
  */
-export const LESSON_SPAWN_DISTANCE_NM = 24;
+export const LESSON_SPAWN_DISTANCE_NM = 28;
 export const LESSON_BUDGET_WALL_SEC = 300;
 
 /** Fix (gate exit point) for a destination gate id, or null. */
@@ -272,29 +273,21 @@ export function placeNearGateAircraft(
 ): Aircraft {
   const gate = GATES.find((g) => g.id === spec.destination);
   const mid = gate ? (gate.startAngle + gate.endAngle) / 2 : 0;
+  const targetDistanceNm = Math.max(MIN_GATE_SPAWN_DISTANCE_NM, options.distanceNm);
   let chosen: { x: number; y: number; heading: number } | null = null;
 
   for (let attempt = 0; attempt < 28 && !chosen; attempt++) {
     const offset = options.directHeading ? 0 : (random() - 0.5) * 60; // ±30° off the fix→centre line
-    const cand = expoSpawnCandidate(spec.destination, options.distanceNm, offset, !!options.directHeading);
+    const cand = expoSpawnCandidate(spec.destination, targetDistanceNm, offset, !!options.directHeading);
     if (!cand) break;
     const distC = distFromCenter(cand.x, cand.y);
-    if (distC >= GATE_RADIUS - 5 || distC < 100) continue;
+    if (distC >= GATE_RADIUS - 5 || distC < 40) continue;
     const crowded = existing.some((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y) < SPAWN_SEP_PX);
     if (crowded) continue;
     chosen = cand;
   }
 
   if (!chosen) {
-    // Blind offset-0 fallback used to ignore separation entirely: with
-    // several aircraft near one gate, all 28 random candidates can be
-    // blocked and the fallback would place the new aircraft on top of an
-    // existing one (Nov 2026: JBU512 spawned 3.7 NM from DAL456). Sweep
-    // systematically instead: every offset around the fix, then nearby
-    // distances, and take the first spot that is inside the ring and 6+ NM
-    // clear of every other aircraft. Only if nothing passes, take the spot
-    // that maximises the minimum separation (best effort, still reported
-    // by the separation tests if it falls short).
     const tryCandidate = (
       offsetDeg: number,
       distNm: number,
@@ -302,26 +295,27 @@ export function placeNearGateAircraft(
       const cand = expoSpawnCandidate(spec.destination, distNm, offsetDeg, !!options.directHeading);
       if (!cand) return null;
       const distC = distFromCenter(cand.x, cand.y);
-      if (distC >= GATE_RADIUS - 5 || distC < 100) return null;
+      if (distC >= GATE_RADIUS - 5 || distC < 40) return null;
       const crowded = existing.some((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y) < SPAWN_SEP_PX);
       return crowded ? null : cand;
     };
     for (let offset = -180; offset <= 180 && !chosen; offset += 5) {
-      chosen = tryCandidate(offset, options.distanceNm);
+      chosen = tryCandidate(offset, targetDistanceNm);
     }
-    for (const delta of [-4, 4, -8, 8] as const) {
+    // Only expand outward away from the gate — never pull spawns closer to the gate.
+    for (const delta of [4, 8, 12] as const) {
       for (let offset = -180; offset <= 180 && !chosen; offset += 5) {
-        chosen = tryCandidate(offset, options.distanceNm + delta);
+        chosen = tryCandidate(offset, targetDistanceNm + delta);
       }
     }
     if (!chosen) {
       let best: { x: number; y: number; heading: number } | null = null;
       let bestMin = -1;
       for (let offset = -180; offset < 180; offset += 5) {
-        const cand = expoSpawnCandidate(spec.destination, options.distanceNm, offset, !!options.directHeading);
+        const cand = expoSpawnCandidate(spec.destination, targetDistanceNm, offset, !!options.directHeading);
         if (!cand) continue;
         const distC = distFromCenter(cand.x, cand.y);
-        if (distC >= GATE_RADIUS - 5 || distC < 100) continue;
+        if (distC >= GATE_RADIUS - 5 || distC < 40) continue;
         const minSep = existing.length
           ? Math.min(...existing.map((ac) => Math.hypot(ac.x - cand.x, ac.y - cand.y)))
           : Infinity;
@@ -330,7 +324,7 @@ export function placeNearGateAircraft(
           best = cand;
         }
       }
-      chosen = best ?? expoSpawnCandidate(spec.destination, options.distanceNm, 0, !!options.directHeading) ?? { x: CENTER, y: CENTER - 200, heading: mid };
+      chosen = best ?? expoSpawnCandidate(spec.destination, targetDistanceNm, 0, !!options.directHeading) ?? { x: CENTER, y: CENTER - 200, heading: mid };
     }
   }
 

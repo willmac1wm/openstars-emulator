@@ -37,7 +37,8 @@ export interface ArcadeRoundPlan {
   /** Parallel to waves — when each wave is added (wave 0 is t=0 initial). */
   waveAtMs: number[];
   waves: Aircraft[][];
-  curveball: ArcadeCurveball;
+  /** Curveballs disabled (no NORDO, no go-around). */
+  curveball: ArcadeCurveball | null;
 }
 
 export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
@@ -47,7 +48,6 @@ export function buildArcadeRound(seedLabel = 'arcade-1'): ArcadeRoundPlan {
     distanceNm: EXPO_SPAWN_DISTANCE_NM,
     waveAtMs: [0, ARCADE_STAGGER_MS, 55_000, 105_000],
     waveCount: 4,
-    curveballAtMs: undefined, // NORDO at 70s (5-min) / 40s (60s)
   });
 }
 
@@ -97,22 +97,13 @@ function buildArcadeRoundPlan(
   ];
   const waves = [wave0, wave1, wave2, wave3].slice(0, opts.waveCount);
 
-  // The only curveball is NORDO: a silent C172 that flies itself straight
-  // to the NOR gate. There is no go-around — there is no runway.
-  const curveball: ArcadeCurveball = {
-    kind: 'nordo',
-    atMs: opts.curveballAtMs ?? 70_000,
-    callsign: 'N123NR',
-    banner: 'CURVEBALL: NORDO — no radio. Vector others around the silent target',
-  };
-
   return {
     name: opts.name,
     seedLabel,
     durationMs: opts.durationMs,
     waveAtMs: opts.waveAtMs,
     waves,
-    curveball,
+    curveball: null,
   };
 }
 
@@ -121,48 +112,22 @@ export function arcadeWaveAircraft(plan: ArcadeRoundPlan, waveIndex: number): Ai
 }
 
 /**
- * 60-Second Challenge: closer spawns (10 NM from the fix, ~24 s wall at
- * 250 kt, 6x) and earlier waves. Wave 2 moved 30 s -> 24 s: at 30 s it had
- * only 30 s left, so even a perfect 24 s crossing plus reaction could not
- * score before the 60 s timer ended. At 24 s it has 36 s — crossing plus a
- * 5 s reaction fits. The curveball still lands at 40 s.
+ * 60-Second Challenge: 15 NM from the fix (~34–36 s wall at 250 kt, 6x)
+ * and earlier waves (0 / 12 / 18 s) so aircraft aren't spawned right next
+ * to their exit gate while still fitting inside the 60 s timer.
  */
 export function buildSixtySecondRound(seedLabel = 'sixty-1'): ArcadeRoundPlan {
   return buildArcadeRoundPlan(seedLabel, {
     name: '60-Second Challenge',
     durationMs: SIXTY_SECOND_DURATION_MS,
     distanceNm: EXPO_SIXTY_SPAWN_DISTANCE_NM,
-    waveAtMs: [0, ARCADE_STAGGER_MS, 24_000],
+    waveAtMs: [0, ARCADE_STAGGER_MS, 18_000],
     waveCount: 3,
-    curveballAtMs: 40_000,
   });
 }
 
-export function spawnCurveballAircraft(plan: ArcadeRoundPlan): Aircraft | null {
-  const { curveball } = plan;
-  if (curveball.kind === 'nordo') {
-    const random = createSeededRandom(seedFromLabel(`${plan.seedLabel}-nordo`));
-    const distanceNm =
-      plan.durationMs === SIXTY_SECOND_DURATION_MS
-        ? EXPO_SIXTY_SPAWN_DISTANCE_NM
-        : EXPO_SPAWN_DISTANCE_NM;
-    return placeNearGateAircraft(
-      {
-        callsign: 'N123NR',
-        type: 'C172',
-        destination: 'NOR',
-        // Legal for NOR (70/90): the NORDO flies itself out with no radio,
-        // so it must not eat a wrong-altitude penalty the player cannot prevent.
-        altitude: 70,
-        speed: 140,
-        special: 'nordo',
-        idPrefix: 'arcade',
-      },
-      [],
-      random,
-      { distanceNm, directHeading: true },
-    );
-  }
+export function spawnCurveballAircraft(_plan: ArcadeRoundPlan): Aircraft | null {
+  // NORDO curveballs removed per user feedback.
   return null;
 }
 

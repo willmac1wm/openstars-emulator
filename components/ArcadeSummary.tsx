@@ -8,12 +8,24 @@ interface ArcadeSummaryProps {
   score: number;
   stats: GameStats;
   onDone: () => void;
-  /** 'arcade' (5 min) or 'sixty' (60-Second Challenge) — recorded on the board. */
-  variant?: 'arcade' | 'sixty';
+  /** 'arcade' (5 min), 'sixty' (60-Second Challenge), or 'saturation' (Sector Saturation). */
+  variant?: 'arcade' | 'sixty' | 'saturation';
   profileInitials?: string;
+  saturationReason?: 'relief' | 'separation' | null;
+  peakAircraft?: number;
+  elapsedMs?: number;
 }
 
-const ArcadeSummary: React.FC<ArcadeSummaryProps> = ({ score, stats, onDone, variant = 'arcade', profileInitials }) => {
+const ArcadeSummary: React.FC<ArcadeSummaryProps> = ({
+  score,
+  stats,
+  onDone,
+  variant = 'arcade',
+  profileInitials,
+  saturationReason = null,
+  peakAircraft = 0,
+  elapsedMs = 0,
+}) => {
   const [initials, setInitials] = useState(profileInitials || 'ATC');
   const [board, setBoard] = useState<HighScoreEntry[]>(() => loadHighScores());
   const [saved, setSaved] = useState(false);
@@ -28,10 +40,21 @@ const ArcadeSummary: React.FC<ArcadeSummaryProps> = ({ score, stats, onDone, var
     <div className="absolute inset-0 z-[70] bg-black/95 flex items-center justify-center p-4" data-testid="arcade-summary">
       <div className="w-full max-w-4xl grid gap-4 lg:grid-cols-2">
         <div className="bg-gray-950 border border-green-700 rounded-xl p-6 space-y-4">
-          <div className="text-gray-400 text-xs tracking-widest uppercase">Shift complete</div>
+          <div className="text-gray-400 text-xs tracking-widest uppercase">
+            {variant === 'saturation'
+              ? saturationReason === 'relief'
+                ? 'Relief on position — sector handed off'
+                : 'Sector overloaded — loss of separation'
+              : 'Shift complete'}
+          </div>
           <div className="text-5xl font-bold text-white">{score}</div>
           {variant === 'sixty' && (
             <div data-testid="sixty-summary-label" className="text-cyan-300 text-sm font-bold">60-SECOND CHALLENGE</div>
+          )}
+          {variant === 'saturation' && (
+            <div data-testid="saturation-summary-label" className="text-red-300 text-sm font-bold">
+              SECTOR SATURATION · {Math.floor(elapsedMs / 60000)}:{String(Math.floor((elapsedMs % 60000) / 1000)).padStart(2, '0')} SURVIVED · PEAK {peakAircraft} A/C
+            </div>
           )}
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="bg-black border border-gray-800 rounded p-3">Clean exits <div className="text-2xl text-green-400">{stats.perfectExits}</div></div>
@@ -53,7 +76,13 @@ const ArcadeSummary: React.FC<ArcadeSummaryProps> = ({ score, stats, onDone, var
                   type="button"
                   className="flex-1 bg-green-600 hover:bg-green-500 text-black font-bold rounded"
                   onClick={() => {
-                    setBoard(saveHighScore(initials, score, { mode: variant === 'sixty' ? '60-Second' : 'Expo', cleanExits: stats.perfectExits }));
+                    const modeLabel =
+                      variant === 'sixty'
+                        ? '60-Second'
+                        : variant === 'saturation'
+                          ? 'Saturation'
+                          : 'Expo';
+                    setBoard(saveHighScore(initials, score, { mode: modeLabel, cleanExits: stats.perfectExits }));
                     setSaved(true);
                   }}
                 >

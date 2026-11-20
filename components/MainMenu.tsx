@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Lock, Sparkles, Timer } from 'lucide-react';
+import { Play, Lock, Sparkles, Timer, Flame } from 'lucide-react';
 import { ScenarioDifficulty, StartOptions } from '../types';
 import { DEFAULT_SCENARIO_SEEDS, readSeedFromLocation, resolveSeedInput } from '../services/scenarioSeed';
 import DesktopDownload from './DesktopDownload';
@@ -134,6 +134,7 @@ const MainMenu: React.FC<MainMenuProps> = ({
 
   const sixtySecondCard = (
     <button
+      key="Expo60"
       type="button"
       data-testid="mode-Expo60"
       onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sixty-1' })}
@@ -144,9 +145,31 @@ const MainMenu: React.FC<MainMenuProps> = ({
           <Timer size={16} className="text-cyan-400" />
           60-SECOND CHALLENGE
         </div>
-        <div className="text-xs md:text-sm opacity-70">Beat the clock · waves at 0 / 12 / 24s</div>
+        <div className="text-xs md:text-sm opacity-70">Beat the clock · waves at 0 / 12 / 18s</div>
       </div>
       <span className="text-green-500 text-xl" aria-hidden>›</span>
+    </button>
+  );
+
+  const saturationCard = (
+    <button
+      key="Saturation"
+      type="button"
+      data-testid="mode-Saturation"
+      onClick={() => onStart({ difficulty: 'Saturation', seedLabel: 'saturation-1' })}
+      className="w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left bg-black border-red-900/70 text-gray-400 hover:border-red-500 hover:text-white"
+    >
+      <div>
+        <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-red-200">
+          <Flame size={16} className="text-red-400" />
+          SECTOR SATURATION
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-red-600 text-red-300">ENDLESS</span>
+        </div>
+        <div className="text-xs md:text-sm opacity-75">
+          Traffic volume ramps up · survive until you call for help or lose separation
+        </div>
+      </div>
+      <span className="text-red-400 text-xl" aria-hidden>›</span>
     </button>
   );
 
@@ -258,8 +281,8 @@ const MainMenu: React.FC<MainMenuProps> = ({
                   <span className="text-green-500 text-xl" aria-hidden>›</span>
                 </button>
               );
-              // Session order: Expo, 60-Second, Trainee, Controller, Veteran.
-              return mode.id === 'Expo' ? [card, sixtySecondCard] : card;
+              // Session order: Expo, 60-Second, Sector Saturation, Trainee, Controller, Veteran.
+              return mode.id === 'Expo' ? [card, sixtySecondCard, saturationCard] : card;
             })}
           </div>
 

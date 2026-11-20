@@ -53,8 +53,8 @@ function assertExpoFleetOk(aircraft: { x: number; y: number; heading: number; de
   for (const ac of aircraft) {
     expect(distFromCenter(ac.x, ac.y), `${label} ${ac.callsign} inside ring`).toBeLessThan(GATE_RADIUS);
     const d = distanceToGateNm(ac) ?? Infinity;
-    expect(d, `${label} ${ac.callsign} near gate`).toBeLessThanOrEqual(20);
-    expect(d, `${label} ${ac.callsign} clear of gate`).toBeGreaterThanOrEqual(6);
+    expect(d, `${label} ${ac.callsign} within crossing budget`).toBeLessThanOrEqual(30);
+    expect(d, `${label} ${ac.callsign} well clear of gate`).toBeGreaterThanOrEqual(14);
     expect(turnToGateDeg(ac), `${label} ${ac.callsign} turn to gate`).toBeLessThanOrEqual(90);
   }
   for (let i = 0; i < aircraft.length; i++) {
@@ -95,8 +95,8 @@ describe('spawn traffic — edge inbound', () => {
         for (const ac of scenario.aircraft) {
           expect(distFromCenter(ac.x, ac.y), `${level}:${seed} ${ac.callsign} inside ring`).toBeLessThan(GATE_RADIUS);
           const d = distanceToGateNm(ac) ?? Infinity;
-          expect(d, `${level}:${seed} ${ac.callsign} near gate`).toBeLessThanOrEqual(24.5);
-          expect(d, `${level}:${seed} ${ac.callsign} clear of gate`).toBeGreaterThanOrEqual(6);
+          expect(d, `${level}:${seed} ${ac.callsign} within crossing budget`).toBeLessThanOrEqual(34);
+          expect(d, `${level}:${seed} ${ac.callsign} well clear of gate`).toBeGreaterThanOrEqual(14);
           expect(turnToGateDeg(ac), `${level}:${seed} ${ac.callsign} turn to gate`).toBeLessThanOrEqual(90);
         }
         for (let i = 0; i < scenario.aircraft.length; i++) {
@@ -109,16 +109,12 @@ describe('spawn traffic — edge inbound', () => {
     }
   });
 
-  it('lesson spawns are near their gates (24 NM), not the old ~75 NM outer-ring transit', () => {
-    // Deliberately changed by the Nov 2026 lesson-pacing fix: a lesson
-    // aircraft used to have ~75 NM to fly (~19–24 min wall at 1x). It now
-    // spawns 24 NM from its gate fix and exits within ~5 min at the 2x
-    // lesson default (see lessonCrossing.test.ts for the full budgets).
+  it('lesson spawns are 28 NM from their gates (well clear of the gate, not the old ~75 NM outer-ring transit)', () => {
     for (const seed of SEEDS) {
       const scenario = buildLocalScenario('Easy', seed);
       for (const ac of scenario.aircraft) {
         const d = distanceToGateNm(ac) ?? 0;
-        expect(d, `${seed} ${ac.callsign} lesson distance to gate`).toBeCloseTo(24, 0);
+        expect(d, `${seed} ${ac.callsign} lesson distance to gate`).toBeCloseTo(28, 0);
       }
     }
   });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Aircraft, CommMessage, SimulationState } from '../types';
-import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Share2, Check, Keyboard as KeyboardIcon } from 'lucide-react';
+import { Send, Radio, Plane, Play, Pause, RotateCcw, Power, Keyboard as KeyboardIcon, Compass } from 'lucide-react';
 import SoftKeyboard from './SoftKeyboard';
 import TapCommandPad from './TapCommandPad';
 import PushToTalk from './PushToTalk';
@@ -50,6 +50,9 @@ interface ControlPanelProps {
   onSpeechError?: (message: string) => void;
   /** Live scope callsigns for Whisper / SpeechGrammar bias. */
   activeCallsigns?: string[];
+  /** Show/hide the heading dial / tap clearance pad (controlled by App so Expo HUD shares state). */
+  showTapPad?: boolean;
+  onToggleTapPad?: () => void;
 }
 
 function padHeading(heading: number): string {
@@ -91,35 +94,32 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onTranscript,
   onSpeechError,
   activeCallsigns = [],
+  showTapPad: controlledShowTapPad,
+  onToggleTapPad,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [copied, setCopied] = useState(false);
   const [showSoftKeyboard, setShowSoftKeyboard] = useState(false);
+  const [internalShowTapPad, setInternalShowTapPad] = useState(true);
+  const showTapPad = controlledShowTapPad ?? internalShowTapPad;
+  const toggleTapPad = onToggleTapPad ?? (() => setInternalShowTapPad((v) => !v));
   const [speechConfidence, setSpeechConfidence] = useState<number | null>(null);
   const [speechPending, setSpeechPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const [zuluTime, setZuluTime] = useState(new Date());
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
   const autoIssueTimerRef = useRef<number | null>(null);
   const lastSpokenTokenRef = useRef<number | null>(null);
 
-  // Clock Timer
-  useEffect(() => {
-    const timer = setInterval(() => setZuluTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Touch / narrow / Expo default OSK open — but How to Play keeps it closed so the radar stays visible.
+  // Only auto-open the on-screen keyboard on touch devices; desktop testers have a physical keyboard
+  // and can toggle it on/off anytime with the KEYS button.
   useEffect(() => {
     if (tutorial) {
       setShowSoftKeyboard(false);
       return;
     }
     const coarse = window.matchMedia('(pointer: coarse)').matches;
-    const narrow = window.innerWidth < 1024;
-    setShowSoftKeyboard(coarse || narrow || expoMode);
+    setShowSoftKeyboard(coarse);
   }, [expoMode, tutorial]);
 
   // Auto-focus + callsign fill when selecting an aircraft.
@@ -243,16 +243,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     }
   };
 
-  const handleShare = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy', err);
-    }
-  };
-
   const handleSoftKey = (key: string) => setInputValue((prev) => prev + key);
   const handleSoftDelete = () => setInputValue((prev) => prev.slice(0, -1));
   const handleSoftClear = () => {
@@ -287,7 +277,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       }`}
     >
 
-      {/* 1. TOP BAR: Status & Score */}
+      {/* 1. TOP BAR: Status & Score (Zulu clock & Seed live in System panel) */}
       <div className="flex flex-wrap justify-between items-center gap-y-1 p-2 border-b border-gray-800 bg-gray-900 shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-white tracking-widest">OPEN<span className="text-green-500">STARS</span></h1>
@@ -298,23 +288,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="bg-black/80 px-2 py-1 rounded border border-gray-700 font-mono text-green-400 font-bold text-sm shadow-[0_0_10px_rgba(20,241,149,0.1)]">
-            {zuluTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC', hour12: false })}Z
-          </div>
+        <div className="flex items-center gap-2">
           <span data-testid="score" className="text-white text-sm font-bold">SCORE: {score}</span>
-          {scenarioSeed && (isRunning || isPaused) && (
-            <span
-              data-testid="active-seed"
-              title={`Scenario seed ${scenarioSeed}`}
-              className="text-green-300 text-[10px] font-mono border border-gray-700 bg-black/80 px-1.5 py-0.5 rounded whitespace-nowrap"
-            >
-              SEED {scenarioSeed}
-            </span>
-          )}
-          <button onClick={handleShare} className="text-[10px] flex items-center gap-1 bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded border border-gray-700 text-gray-300">
-            {copied ? <Check size={10} className="text-green-500" /> : <Share2 size={10} />}
-          </button>
         </div>
       </div>
 
@@ -445,9 +420,21 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             aria-pressed={showSoftKeyboard}
             title={showSoftKeyboard ? 'Hide on-screen keyboard' : 'Show on-screen keyboard'}
             onClick={() => setShowSoftKeyboard(!showSoftKeyboard)}
-            className={`px-2 rounded border ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}
+            className={`px-2 rounded border flex items-center gap-1 text-[10px] font-bold ${showSoftKeyboard ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400 hover:text-gray-200'}`}
           >
-            <KeyboardIcon size={18} />
+            <KeyboardIcon size={14} />
+            <span className="hidden sm:inline">KEYS</span>
+          </button>
+          <button
+            type="button"
+            data-testid="tap-pad-toggle"
+            aria-pressed={showTapPad}
+            title={showTapPad ? 'Hide heading dial & tap controls' : 'Show heading dial & tap controls'}
+            onClick={toggleTapPad}
+            className={`px-2 rounded border flex items-center gap-1 text-[10px] font-bold ${showTapPad ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400 hover:text-gray-200'}`}
+          >
+            <Compass size={14} />
+            <span className="hidden sm:inline">DIAL</span>
           </button>
           <button
             type="submit"
@@ -518,10 +505,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       )}
 
-      {/* Arcade tap pad: flex so ISSUE CLEARANCE stays visible without panel scroll */}
+      {/* Arcade tap pad: flex when dial is shown, shrink when hidden so comm log expands */}
       {arcadeActive && (
         <div
-          className="flex-1 min-h-0 flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden"
+          className={`${showTapPad ? 'flex-1 min-h-0' : 'shrink-0'} flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden`}
           data-testid="arcade-hud-slot"
         >
           {arcadeHud}
@@ -529,12 +516,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       )}
 
       {/* Lesson tap pad: Trainee / Controller / Veteran get the same dial +
-          chips + ISSUE panel as Expo (previously typed-command-only, even
-          though the tutorial and tips teach tap). Hidden in Expo/tutorial,
-          where the arcade HUD above owns this slot. */}
+          chips + ISSUE panel as Expo. Hidden in Expo/tutorial, where the
+          arcade HUD above owns this slot. */}
       {!arcadeActive && canCommand && (
         <div
-          className="flex-1 min-h-0 flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden"
+          className={`${showTapPad ? 'flex-1 min-h-0' : 'shrink-0'} flex flex-col px-1.5 pb-1 border-b border-gray-800 bg-black/40 overflow-hidden`}
           data-testid="lesson-tap-slot"
         >
           {onTranscript && (
@@ -548,14 +534,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               />
             </div>
           )}
-          <TapCommandPad aircraft={selectedAircraft} onIssue={onCommand} />
+          {showTapPad && <TapCommandPad aircraft={selectedAircraft} onIssue={onCommand} />}
         </div>
       )}
 
-      {/* 4. BOTTOM SPLIT SECTION — shrink comm log when arcade HUD owns the height */}
+      {/* 4. BOTTOM SPLIT SECTION — expand comm log when dial is hidden */}
       <div
         className={`comm-log-section ${
-          arcadeActive ? 'shrink-0 max-h-14 lg:max-h-16' : 'flex-1'
+          arcadeActive && showTapPad ? 'shrink-0 max-h-14 lg:max-h-16' : 'flex-1'
         } min-h-0 flex flex-row lg:flex-col overflow-hidden`}
       >
         <div className="flex-1 bg-black border-r lg:border-r-0 lg:border-b border-gray-800 flex flex-col relative min-w-0 w-full">

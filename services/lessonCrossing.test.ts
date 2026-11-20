@@ -93,7 +93,7 @@ describe('lesson pacing budgets', () => {
     }
   });
 
-  it('even at 1x a lesson aircraft can still finish in a reasonable time (<= 7.5 min straight-line)', () => {
+  it('even at 1x a lesson aircraft can still finish in a reasonable time (<= 9 min straight-line)', () => {
     for (const difficulty of DIFFICULTIES) {
       for (const seed of SEEDS) {
         const scenario = buildLocalScenario(difficulty, seed);
@@ -102,7 +102,7 @@ describe('lesson pacing budgets', () => {
           expect(
             t,
             `${difficulty}/${seed} ${ac.callsign} at 1x = ${t.toFixed(0)}s wall`,
-          ).toBeLessThanOrEqual(450);
+          ).toBeLessThanOrEqual(540);
         }
       }
     }

@@ -32,12 +32,13 @@ function menuHtml(props: Partial<React.ComponentProps<typeof MainMenu>> = {}): s
 describe('simplified main menu', () => {
   it('renders all five session cards, How to Play, and the footer line', () => {
     const html = menuHtml();
-    for (const label of ['EXPO ARCADE', '60-SECOND CHALLENGE', 'TRAINEE', 'CONTROLLER', 'VETERAN']) {
+    for (const label of ['EXPO ARCADE', '60-SECOND CHALLENGE', 'SECTOR SATURATION', 'TRAINEE', 'CONTROLLER', 'VETERAN']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('HOW TO PLAY');
     expect(html).toContain('data-testid="mode-Expo"');
     expect(html).toContain('data-testid="mode-Expo60"');
+    expect(html).toContain('data-testid="mode-Saturation"');
     expect(html).toContain('data-testid="mode-Easy"');
     expect(html).toContain('data-testid="mode-Medium"');
     expect(html).toContain('data-testid="mode-Hard"');

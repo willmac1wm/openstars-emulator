@@ -57,8 +57,13 @@ import {
   buildSixtySecondRound,
   planToInitialScenario,
   perfectHandoffPilotLine,
-  spawnCurveballAircraft,
 } from './services/arcade';
+import {
+  buildSaturationScenario,
+  SATURATION_INITIAL_COUNT,
+  saturationNextIntervalMs,
+  spawnSaturationAircraft,
+} from './services/saturation';
 import {
   loadProfile,
   loadProgress,
@@ -109,10 +114,11 @@ const App: React.FC = () => {
   useEffect(() => subscribeDisplaySettings((s) => setShowJRings(s.jRings3Nm)), []);
   
   // UI States for Overlays
-  const [isRateOpen, setIsRateOpen] = useState(false);
   const [isDataOpen, setIsDataOpen] = useState(true);
+  const [showTapPad, setShowTapPad] = useState(true);
   const [playMode, setPlayMode] = useState<'expo' | 'standard'>('standard');
   const [currentDifficulty, setCurrentDifficulty] = useState<string>('Expo');
+  const [scenarioName, setScenarioName] = useState<string | null>(null);
   const [tutorialActive, setTutorialActive] = useState(false);
   const [tutorialDoneFlag, setTutorialDoneFlag] = useState(() => hasCompletedTutorial());
   const [scoreFlash, setScoreFlash] = useState<string | null>(null);
@@ -134,8 +140,15 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showInstructor, setShowInstructor] = useState(false);
-  const [arcadeVariant, setArcadeVariant] = useState<'arcade' | 'sixty' | null>(null);
-  const arcadeVariantRef = useRef<'arcade' | 'sixty' | null>(null);
+  const [arcadeVariant, setArcadeVariant] = useState<'arcade' | 'sixty' | 'saturation' | null>(null);
+  const arcadeVariantRef = useRef<'arcade' | 'sixty' | 'saturation' | null>(null);
+  const [saturationStartedAt, setSaturationStartedAt] = useState<number | null>(null);
+  const [saturationElapsedMs, setSaturationElapsedMs] = useState(0);
+  const [saturationPeak, setSaturationPeak] = useState(0);
+  const [saturationEndReason, setSaturationEndReason] = useState<'relief' | 'separation' | null>(null);
+  const saturationSpawnCountRef = useRef(0);
+  const saturationTimerRef = useRef<number | null>(null);
+  const saturationEndedRef = useRef(false);
   const isDailyRef = useRef(false);
   const recordedSessionRef = useRef<number | null>(null);
   const [desktopSettingsOpen, setDesktopSettingsOpen] = useState(false);
@@ -226,6 +239,10 @@ const App: React.FC = () => {
       );
       return;
     }
+    if (difficulty === 'Saturation') {
+      startSaturationRound(typeof requestedSeed === 'string' ? requestedSeed : undefined);
+      return;
+    }
     const seed = resolveSeedInput(
       requestedSeed ?? DEFAULT_SCENARIO_SEEDS[difficulty as keyof typeof DEFAULT_SCENARIO_SEEDS],
       difficulty,
@@ -257,6 +274,7 @@ const App: React.FC = () => {
       })));
       setSelectedId(firstId);
       setGameState(SimulationState.RUNNING);
+      setScenarioName(scenario.name);
       setStatusMessage(`RADAR CONTACT: ${scenario.name}`);
       addLog(`GATES OPEN. ${scenario.aircraft.length} AIRCRAFT INBOUND.`);
       if (scenario.seedLabel) {
@@ -292,6 +310,10 @@ const App: React.FC = () => {
       window.clearTimeout(curveballTimerRef.current);
       curveballTimerRef.current = null;
     }
+    if (saturationTimerRef.current) {
+      window.clearTimeout(saturationTimerRef.current);
+      saturationTimerRef.current = null;
+    }
   }, []);
 
   const returnToMenu = (opts?: { attract?: boolean }) => {
@@ -299,6 +321,12 @@ const App: React.FC = () => {
     arcadeActiveRef.current = false;
     arcadeVariantRef.current = null;
     setArcadeVariant(null);
+    setSaturationStartedAt(null);
+    setSaturationElapsedMs(0);
+    setSaturationPeak(0);
+    setSaturationEndReason(null);
+    saturationEndedRef.current = false;
+    setScenarioName(null);
     isDailyRef.current = false;
     recordedSessionRef.current = null;
     setTutorialActive(false);
@@ -328,7 +356,11 @@ const App: React.FC = () => {
     if (recordedSessionRef.current !== stats.startTime && stats.startTime > 0) {
       recordedSessionRef.current = stats.startTime;
       const mode = arcadeActiveRef.current
-        ? (arcadeVariantRef.current === 'sixty' ? '60-Second' : 'Expo')
+        ? (arcadeVariantRef.current === 'sixty'
+            ? '60-Second'
+            : arcadeVariantRef.current === 'saturation'
+              ? 'Saturation'
+              : 'Expo')
         : currentDifficulty;
       const next = recordSession(loadProgress(), mode, score, stats.perfectExits);
       saveProgress(next);
@@ -424,6 +456,7 @@ const App: React.FC = () => {
     setAircraft(scenario.aircraft.map((ac, index) => ({ ...ac, isSelected: index === 0 })));
     setSelectedId(firstId);
     setGameState(SimulationState.RUNNING);
+    setScenarioName(plan.name);
     setStatusMessage(`ARCADE: ${plan.name}`);
     setMessages([{ id: 1, text: variant === 'sixty' ? '60-SECOND CHALLENGE — 60 SECONDS. VOICE, TAP, OR TYPE.' : 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
     setScore(0);
@@ -450,24 +483,89 @@ const App: React.FC = () => {
       waveTimersRef.current.push(timer);
     });
 
-    // The only curveball is NORDO: a silent C172 joins the scope. It flies
-    // itself straight to the NOR gate; the player vectors everyone else
-    // around it. (No go-around: there is no runway in this game.)
-    curveballTimerRef.current = window.setTimeout(() => {
-      setArcadeBanner(plan.curveball.banner);
-      addLog(plan.curveball.banner, 'system');
-      const spawned = spawnCurveballAircraft(plan);
-      if (spawned) {
-        // Spawn joins the scope UNSELECTED: auto-selecting it used to
-        // discard a dialled-but-unissued clearance for another aircraft
-        // (and the tap pad resets on selection change). The player taps
-        // the NORDO target if they want it.
-        setAircraft((prev) => [...prev, { ...spawned, isSelected: false }]);
-      }
-    }, plan.curveball.atMs);
-
-    trackEvent('Arcade Started', { seed: seed.display, curveball: plan.curveball.kind });
+    trackEvent('Arcade Started', { seed: seed.display });
   }, [addLog, clearArcadeTimers]);
+
+  const startSaturationRound = useCallback((seedLabel?: string) => {
+    clearArcadeTimers();
+    const seed = resolveSeedInput(seedLabel || 'saturation-1', 'Expo');
+    const scenario = buildSaturationScenario(seed.display);
+    arcadeActiveRef.current = true;
+    arcadeVariantRef.current = 'saturation';
+    setArcadeVariant('saturation');
+    saturationEndedRef.current = false;
+    saturationSpawnCountRef.current = SATURATION_INITIAL_COUNT;
+    setSaturationEndReason(null);
+    setSaturationPeak(scenario.aircraft.length);
+    const now = Date.now();
+    setSaturationStartedAt(now);
+    setSaturationElapsedMs(0);
+    isDailyRef.current = false;
+    recordedSessionRef.current = null;
+    setTutorialActive(false);
+    setShowAttract(false);
+    setShowArcadeSummary(false);
+    setPlayMode('expo');
+    setCurrentDifficulty('Saturation');
+    setScenarioName('Sector Saturation');
+    setScenarioSeed(seed.display);
+    writeSeedToUrl(seed.display);
+    setScoreFlash(null);
+    setArcadeBanner('SECTOR SATURATION — traffic volume will keep increasing. Call for help when at your limit.');
+    setLiveTranscript('');
+    setConflictAlarm(false);
+    setConflictAlertActive(false);
+    setArcadeEndsAt(null);
+    // Start calm at normal lesson speed (2x); workload scales via aircraft volume, not clock multiplier.
+    setTimeScale(DEFAULT_TIME_SCALE);
+    identifyUser('guest-saturation');
+    const firstId = scenario.aircraft[0]?.id ?? null;
+    setAircraft(scenario.aircraft.map((ac, index) => ({ ...ac, isSelected: index === 0 })));
+    setSelectedId(firstId);
+    setGameState(SimulationState.RUNNING);
+    setStatusMessage('SECTOR SATURATION — TRAFFIC RAMPING');
+    setMessages([{
+      id: 1,
+      text: 'SECTOR SATURATION — TRAFFIC VOLUME INCREASES UNTIL YOU CALL FOR HELP OR LOSE SEPARATION.',
+      source: 'system',
+    }]);
+    setScore(0);
+    setStats({ ...INITIAL_STATS, startTime: now });
+    incidentCooldowns.current.clear();
+    lastTimeRef.current = 0;
+
+    const scheduleNext = () => {
+      const delay = saturationNextIntervalMs(saturationSpawnCountRef.current);
+      saturationTimerRef.current = window.setTimeout(() => {
+        if (!arcadeActiveRef.current || arcadeVariantRef.current !== 'saturation' || saturationEndedRef.current) return;
+        const idx = saturationSpawnCountRef.current;
+        saturationSpawnCountRef.current += 1;
+        setAircraft((prev) => {
+          const activeNow = prev.filter((a) => a.status !== 'HANDOFF' && a.status !== 'CRASH');
+          const nextAc = spawnSaturationAircraft(seed.display, idx, activeNow);
+          const nextList = [...prev, { ...nextAc, isSelected: false }];
+          const nextActiveCount = activeNow.length + 1;
+          setSaturationPeak((p) => Math.max(p, nextActiveCount));
+          addLog(`INBOUND ${nextAc.callsign} (${nextAc.type}) FOR ${nextAc.destination} — ${nextActiveCount} ON SCOPE`, 'system');
+          setArcadeBanner(`TRAFFIC INBOUND — ${nextActiveCount} ON SCOPE`);
+          return nextList;
+        });
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
+
+    trackEvent('Saturation Started', { seed: seed.display });
+  }, [addLog, clearArcadeTimers]);
+
+  const handleCallForHelp = useCallback(() => {
+    if (!arcadeActiveRef.current || arcadeVariantRef.current !== 'saturation' || saturationEndedRef.current) return;
+    saturationEndedRef.current = true;
+    setSaturationEndReason('relief');
+    addLog('RELIEF ON POSITION — SECTOR HANDED OFF.', 'system');
+    setScoreFlash('RELIEF ON POSITION');
+    endGame();
+  }, [addLog, endGame]);
 
   /** Restart the current session in place (same mode + seed) — the in-session
    *  Restart button. Tutorial restarts the tutorial; arcade restarts the
@@ -478,6 +576,10 @@ const App: React.FC = () => {
       return;
     }
     if (arcadeActiveRef.current) {
+      if (arcadeVariantRef.current === 'saturation') {
+        startSaturationRound(scenarioSeed ?? undefined);
+        return;
+      }
       startArcadeRound(scenarioSeed ?? undefined, arcadeVariantRef.current ?? 'arcade');
       return;
     }
@@ -644,6 +746,14 @@ const App: React.FC = () => {
   }, [arcadeEndsAt, gameState, endGame]);
 
   useEffect(() => {
+    if (!saturationStartedAt || gameState !== SimulationState.RUNNING || arcadeVariant !== 'saturation') return;
+    const tick = () => setSaturationElapsedMs(Date.now() - saturationStartedAt);
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [saturationStartedAt, gameState, arcadeVariant]);
+
+  useEffect(() => {
     if (!arcadeBanner) return;
     const timer = window.setTimeout(() => setArcadeBanner(null), 5000);
     return () => window.clearTimeout(timer);
@@ -774,7 +884,7 @@ const App: React.FC = () => {
         return { ...ac, x: newX, y: newY, heading: newHeading, altitude: newAlt, speed: newSpeed, history: newHistory, status, turnDirection: ac.turnDirection, alertLevel: AlertLevel.NONE, handoffResult };
       });
       
-      if (prev.length > 0 && activeCount === 0 && !tutorialActiveRef.current) {
+      if (prev.length > 0 && activeCount === 0 && !tutorialActiveRef.current && arcadeVariantRef.current !== 'saturation') {
           setTimeout(endGame, 4000);
       }
 
@@ -858,6 +968,14 @@ const App: React.FC = () => {
     );
     setConflictAlarm(hasCritical);
     setConflictAlertActive(hasCritical);
+
+    // In Sector Saturation, a loss of separation ends the shift.
+    if (hasCritical && arcadeVariantRef.current === 'saturation' && !saturationEndedRef.current) {
+      saturationEndedRef.current = true;
+      setSaturationEndReason('separation');
+      setScoreFlash('SECTOR OVERLOADED — LOSS OF SEPARATION');
+      window.setTimeout(() => endGame(), 1200);
+    }
 
     return newAircraft;
   };
@@ -1126,7 +1244,16 @@ const App: React.FC = () => {
         <AttractMode onStart={() => startArcadeRound()} onTutorial={startTutorial} onOpenLeaderboard={() => setShowLeaderboard(true)} />
       )}
       {gameState === SimulationState.SUMMARY && showArcadeSummary && (
-        <ArcadeSummary score={score} stats={stats} onDone={finishArcadeSummary} variant={arcadeVariant ?? 'arcade'} profileInitials={profile.initials} />
+        <ArcadeSummary
+          score={score}
+          stats={stats}
+          onDone={finishArcadeSummary}
+          variant={arcadeVariant ?? 'arcade'}
+          profileInitials={profile.initials}
+          saturationReason={saturationEndReason}
+          peakAircraft={saturationPeak}
+          elapsedMs={saturationElapsedMs}
+        />
       )}
       {gameState === SimulationState.SUMMARY && !showArcadeSummary && (
         <SummaryScreen score={score} stats={stats} onReset={returnToMenu} progress={progress} isDaily={isDailyRef.current} />
@@ -1197,7 +1324,27 @@ const App: React.FC = () => {
                      )}
                 </div>
 
-                <div className="absolute top-2 right-2 z-30 flex items-start gap-1">
+                <div className="absolute top-2 right-2 z-30 flex items-center gap-1.5 flex-wrap justify-end">
+                     <div
+                       data-testid="scope-speed-bar"
+                       className="flex items-center gap-1 bg-gray-950/80 p-0.5 rounded border border-gray-800 backdrop-blur-sm"
+                       aria-label="Simulation speed"
+                     >
+                       {SIM_SPEED_OPTIONS.map((s) => (
+                         <button
+                           key={s}
+                           type="button"
+                           onClick={() => setTimeScale(s)}
+                           className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-all min-w-[26px] ${
+                             timeScale === s
+                               ? 'bg-green-900/80 border-green-500 text-white shadow-[0_0_8px_rgba(20,241,149,0.25)]'
+                               : 'border-transparent text-gray-500 hover:text-gray-200 hover:border-gray-700'
+                           }`}
+                         >
+                           {s}x
+                         </button>
+                       ))}
+                     </div>
                      <button
                         type="button"
                         data-testid="jring-toggle"
@@ -1212,23 +1359,6 @@ const App: React.FC = () => {
                      >
                         J-RINGS 3 NM
                      </button>
-                     <div className="2xl:hidden flex items-start gap-1">
-                       {isRateOpen && (
-                          <div className="flex gap-1 bg-gray-900/50 p-1 rounded border border-gray-800/50 shadow backdrop-blur-sm animate-in slide-in-from-right-2 fade-in duration-200">
-                              {SIM_SPEED_OPTIONS.map(s => (
-                                  <button key={s} onClick={() => setTimeScale(s)} className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-all min-w-[24px] ${timeScale === s ? 'bg-green-900/80 border-green-500 text-white' : 'text-gray-500'}`}>
-                                      {s}x
-                                  </button>
-                              ))}
-                          </div>
-                       )}
-                       <button 
-                          onClick={() => setIsRateOpen(!isRateOpen)}
-                          className={`text-[10px] font-bold px-2 py-1 rounded border backdrop-blur-sm transition-all flex items-center gap-1 h-[26px] ${isRateOpen ? 'bg-green-900/50 border-green-600 text-white' : 'bg-gray-900/50 border-gray-800/50 text-gray-500'}`}
-                       >
-                          RATE
-                       </button>
-                     </div>
                 </div>
             </div>
           </div>
@@ -1236,10 +1366,8 @@ const App: React.FC = () => {
           {/* RIGHT SIDEBAR: Reference Panel (Visible only on 2XL screens) */}
           <div className="hidden 2xl:block h-full">
                <ReferencePanel
-                 timeScale={timeScale}
-                 setTimeScale={setTimeScale}
-                 showJRings={showJRings}
-                 onToggleJRings={toggleJRings}
+                 scenarioSeed={scenarioSeed}
+                 scenarioName={scenarioName}
                />
           </div>
 
@@ -1261,6 +1389,8 @@ const App: React.FC = () => {
         onMoveLabel={handleMoveDataBlock}
         expoMode={playMode === 'expo'}
         tutorial={tutorialActive}
+        showTapPad={showTapPad}
+        onToggleTapPad={() => setShowTapPad((v) => !v)}
         spokenFill={spokenFill}
         onSpokenFillConsumed={(token) => {
           setSpokenFill((prev) => (prev && prev.token === token ? null : prev));
@@ -1281,6 +1411,11 @@ const App: React.FC = () => {
             onExit={returnToMenu}
             tutorial={tutorialActive}
             activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
+            showTapPad={showTapPad}
+            saturation={arcadeVariant === 'saturation'}
+            elapsedMs={saturationElapsedMs}
+            activeAircraftCount={aircraft.filter((a) => a.status !== 'HANDOFF' && a.status !== 'CRASH').length}
+            onCallForHelp={handleCallForHelp}
           />
         ) : null}
       />

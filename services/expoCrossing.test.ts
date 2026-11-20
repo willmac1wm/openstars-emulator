@@ -94,32 +94,14 @@ describe('expo crossing-time budgets', () => {
     }
   });
 
-  it('NORDO curveball: flies straight to its gate and exits within 90s in the 5-min round', () => {
+  it('NORDO curveball is disabled for every seed and both variants', () => {
     for (const seed of SEEDS) {
-      const plan = buildArcadeRound(seed);
-      const nordoPlan = {
-        ...plan,
-        curveball: { ...plan.curveball, kind: 'nordo' as const, callsign: 'N123NR' },
-      };
-      const nordo = spawnCurveballAircraft(nordoPlan);
-      expect(nordo).not.toBeNull();
-      if (!nordo) continue;
-      // Unvectorable: its initial heading must already point at the gate.
-      expect(
-        turnToGateDeg(nordo),
-        `${seed} NORDO turn to gate (heading ${nordo.heading})`,
-      ).toBeLessThanOrEqual(15);
-      const t = crossingWallSec(distToGateNm(nordo), nordo.speed);
-      expect(t, `${seed} NORDO ${distToGateNm(nordo).toFixed(1)} NM at ${nordo.speed} kt = ${t.toFixed(0)}s wall`).toBeLessThanOrEqual(90);
-      // And it must be able to exit inside the round even spawning at 70s.
-      expect(70_000 + t * 1000).toBeLessThanOrEqual(ARCADE_DURATION_MS);
-    }
-  });
-
-  it('the curveball is always NORDO, for every seed and both variants', () => {
-    for (const seed of SEEDS) {
-      expect(buildArcadeRound(seed).curveball.kind).toBe('nordo');
-      expect(buildSixtySecondRound(seed).curveball.kind).toBe('nordo');
+      const arcade = buildArcadeRound(seed);
+      const sixty = buildSixtySecondRound(seed);
+      expect(arcade.curveball).toBeNull();
+      expect(sixty.curveball).toBeNull();
+      expect(spawnCurveballAircraft(arcade)).toBeNull();
+      expect(spawnCurveballAircraft(sixty)).toBeNull();
     }
   });
 
@@ -141,21 +123,6 @@ describe('expo crossing-time budgets', () => {
           ).toBeLessThanOrEqual(SIXTY_SECOND_DURATION_MS);
         }
       });
-    }
-  });
-
-  it('flight simulation: the NORDO flies itself out with no commands at all', () => {
-    for (const seed of SEEDS) {
-      const plan = buildArcadeRound(seed);
-      const nordo = spawnCurveballAircraft({
-        ...plan,
-        curveball: { ...plan.curveball, kind: 'nordo' as const, callsign: 'N123NR' },
-      });
-      expect(nordo).not.toBeNull();
-      if (!nordo) continue;
-      // No reaction, no turn: heading stays exactly as spawned.
-      const t = simulateExitWallSec(nordo, { reactionWallSec: 1_000_000 });
-      expect(t, `${seed} NORDO uncommanded exit ${t.toFixed(1)}s wall`).toBeLessThanOrEqual(90);
     }
   });
 

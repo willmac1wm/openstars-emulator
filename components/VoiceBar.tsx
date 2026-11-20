@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 import { getVoiceSettings, subscribeVoiceSettings, updateVoiceSettings, VoiceSettings } from '../services/voiceSettings';
 import { getVoiceRuntime, primePilotVoice, subscribeVoiceRuntime, VoiceRuntime } from '../services/pilotVoice';
 import { getWebWhisperRuntime, subscribeWebWhisper, WebWhisperRuntime } from '../services/webWhisper';
@@ -10,14 +10,12 @@ const VoiceBar: React.FC = () => {
   const [settings, setSettings] = useState<VoiceSettings>(getVoiceSettings);
   const [runtime, setRuntime] = useState<VoiceRuntime>(getVoiceRuntime);
   const [whisperRt, setWhisperRt] = useState<WebWhisperRuntime>(getWebWhisperRuntime);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => subscribeVoiceSettings(() => setSettings(getVoiceSettings())), []);
   useEffect(() => subscribeVoiceRuntime(() => setRuntime(getVoiceRuntime())), []);
   useEffect(() => subscribeWebWhisper(setWhisperRt), []);
 
-  // TTS engine actually in use — not just the toggle the user picked.
-  // 'fallback' matters: natural was requested but Kokoro failed to load,
-  // so Fast voice is speaking; previously the bar just said FAST.
   const engine = !settings.enabled
     ? 'off'
     : settings.naturalVoices && runtime.engine === 'kokoro' && runtime.phase === 'ready'
@@ -29,165 +27,195 @@ const VoiceBar: React.FC = () => {
           : 'webspeech';
 
   const statusLabel = engine === 'off'
-    ? 'VOICE OFF'
+    ? 'Voice off'
     : engine === 'loading'
-      ? `LOADING ${Math.round(runtime.progress * 100)}%`
+      ? `Loading ${Math.round(runtime.progress * 100)}%`
       : engine === 'kokoro'
-        ? (runtime.device === 'webgpu' ? 'NATURAL·GPU' : 'NATURAL')
+        ? (runtime.device === 'webgpu' ? 'Natural AI (GPU)' : 'Natural AI')
         : engine === 'fallback'
-          ? 'FAST·NAT FAILED'
-          : 'FAST';
+          ? 'Fast (AI unavailable)'
+          : 'Fast (instant)';
 
-  // STT engine actually in use for the next PTT press.
   const sttLabel = isDesktopApp()
-    ? 'DESK-WHISPER'
+    ? 'Desktop AI'
     : settings.accurateSpeech
       ? whisperRt.phase === 'ready'
-        ? 'WHISPER'
+        ? 'AI Mic (ready)'
         : whisperRt.phase === 'loading'
-          ? `WHISPER ${Math.round(whisperRt.progress * 100)}%`
-          : 'WEB·AI ✕'
+          ? `AI Mic ${Math.round(whisperRt.progress * 100)}%`
+          : 'Browser Mic'
       : isSpeechRecognitionSupported()
-        ? 'WEB'
-        : '—';
-  const sttTitle = isDesktopApp()
-    ? 'Speech-to-text: desktop Whisper (on-device)'
-    : settings.accurateSpeech
-      ? whisperRt.phase === 'ready'
-        ? 'Speech-to-text: on-device Whisper (ready)'
-        : whisperRt.phase === 'loading'
-          ? `Accurate speech loading ${Math.round(whisperRt.progress * 100)}% — using browser mic for now`
-          : whisperRt.phase === 'unsupported'
-            ? 'Accurate speech needs WebGPU — using browser mic'
-            : whisperRt.phase === 'error'
-              ? 'Accurate speech failed to load — using browser mic'
-              : 'Accurate speech warming up — using browser mic for now'
-      : isSpeechRecognitionSupported()
-        ? 'Speech-to-text: browser Web Speech (Chrome/Edge)'
-        : 'Speech-to-text unavailable in this browser — use tap/type';
-
-  const naturalTitle = engine === 'fallback'
-    ? 'Natural voices failed to load — using Fast voice'
-    : 'Natural Kokoro voices are warmer but often slower on Chromebooks. Default is Fast voice (Web Speech).';
-  const accurateTitle = settings.accurateSpeech ? sttTitle
-    : 'Accurate speech (beta): on-device Whisper tiny.en via WebGPU (~45MB). Falls back to browser speech if unavailable. Audio never leaves your device.';
+        ? 'Browser Mic'
+        : 'Unavailable';
 
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400" aria-label="Pilot voice">
-      <button
-        type="button"
-        aria-pressed={settings.enabled}
-        onClick={() => {
-          const next = !settings.enabled;
-          updateVoiceSettings({ enabled: next });
-          if (next) primePilotVoice();
-        }}
-        className={`px-1.5 py-0.5 rounded border flex items-center gap-1 ${
-          settings.enabled
-            ? 'border-green-600 text-green-300 bg-green-900/40'
-            : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        {settings.enabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
-        VOX
-      </button>
-      <button
-        type="button"
-        data-testid="natural-voices-toggle"
-        title={naturalTitle}
-        aria-pressed={settings.naturalVoices}
-        onClick={() => {
-          const next = !settings.naturalVoices;
-          updateVoiceSettings({ naturalVoices: next });
-          if (next) primePilotVoice();
-        }}
-        className={`px-1.5 py-0.5 rounded border ${
-          settings.naturalVoices ? 'border-violet-600 text-violet-200' : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        {settings.naturalVoices ? 'NATURAL' : 'FAST'}
-      </button>
-      <button
-        type="button"
-        data-testid="accurate-speech-toggle"
-        title={accurateTitle}
-        aria-pressed={settings.accurateSpeech}
-        onClick={() => updateVoiceSettings({ accurateSpeech: !settings.accurateSpeech })}
-        className={`px-1.5 py-0.5 rounded border ${
-          settings.accurateSpeech ? 'border-violet-500 text-violet-100' : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        {settings.accurateSpeech ? 'STT·AI' : 'STT'}
-      </button>
-      <button
-        type="button"
-        data-testid="sound-effects-toggle"
-        title="Gate success chimes and penalty tones (Web Audio). Does not mute pilot readbacks."
-        aria-pressed={settings.soundEffects}
-        onClick={() => updateVoiceSettings({ soundEffects: !settings.soundEffects })}
-        className={`px-1.5 py-0.5 rounded border ${
-          settings.soundEffects ? 'border-cyan-600 text-cyan-200' : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        SFX
-      </button>
-      <button
-        type="button"
-        data-testid="conflict-alert-toggle"
-        title="STARS-like Conflict Alert beep while a loss of separation is active. Default on. Muted when SFX is off."
-        aria-pressed={settings.conflictAlertSound}
-        onClick={() => updateVoiceSettings({ conflictAlertSound: !settings.conflictAlertSound })}
-        className={`px-1.5 py-0.5 rounded border ${
-          settings.conflictAlertSound ? 'border-red-600 text-red-200' : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        CA
-      </button>
-      <label className="flex items-center gap-1">
-        <span className="sr-only">Voice volume</span>
-        <input
-          aria-label="Voice volume"
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(settings.volume * 100)}
-          onChange={(event) => updateVoiceSettings({ volume: Number(event.target.value) / 100 })}
-          className="w-12 accent-green-500"
-        />
-      </label>
-      <button
-        type="button"
-        aria-pressed={settings.radioEffect}
-        onClick={() => updateVoiceSettings({ radioEffect: !settings.radioEffect })}
-        className={`px-1.5 py-0.5 rounded border ${
-          settings.radioEffect ? 'border-amber-600 text-amber-200' : 'border-gray-700 text-gray-500'
-        }`}
-      >
-        RADIO
-      </button>
-      <label className="flex items-center gap-1">
-        <span className="sr-only">Voice speed</span>
-        <input
-          aria-label="Voice speed"
-          type="range"
-          min={80}
-          max={125}
-          value={Math.round(settings.rate * 100)}
-          onChange={(event) => updateVoiceSettings({ rate: Number(event.target.value) / 100 })}
-          className="w-12 accent-green-500"
-        />
-      </label>
-      <span
-        data-testid="voice-status"
-        data-engine={engine}
-        data-stt-engine={sttLabel}
-        title={`Pilot voice (text-to-speech): ${statusLabel}. Speech-to-text: ${sttTitle}`}
-        className="ml-auto text-[9px] tracking-wide text-gray-500"
-        aria-live="polite"
-      >
-        {statusLabel} · STT {sttLabel}
-        {runtime.lastGenerateMs > 0 && settings.naturalVoices ? ` · ${runtime.lastGenerateMs}ms` : ''}
-      </span>
+    <div className="text-[10px] text-gray-400" aria-label="Pilot audio">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-pressed={settings.enabled}
+          title="Turn pilot readback voices on or off"
+          onClick={() => {
+            const next = !settings.enabled;
+            updateVoiceSettings({ enabled: next });
+            if (next) primePilotVoice();
+          }}
+          className={`px-2 py-0.5 rounded border flex items-center gap-1 font-bold ${
+            settings.enabled
+              ? 'border-green-600 text-green-300 bg-green-900/40'
+              : 'border-gray-700 text-gray-500'
+          }`}
+        >
+          {settings.enabled ? <Volume2 size={11} /> : <VolumeX size={11} />}
+          {settings.enabled ? 'VOICE ON' : 'VOICE OFF'}
+        </button>
+
+        <label className="flex items-center gap-1" title="Pilot & alert volume">
+          <span className="sr-only">Voice volume</span>
+          <input
+            aria-label="Voice volume"
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(settings.volume * 100)}
+            onChange={(event) => updateVoiceSettings({ volume: Number(event.target.value) / 100 })}
+            className="w-16 accent-green-500"
+          />
+        </label>
+
+        <button
+          type="button"
+          data-testid="sound-effects-toggle"
+          title="Gate chimes and alert tones"
+          aria-pressed={settings.soundEffects}
+          onClick={() => updateVoiceSettings({ soundEffects: !settings.soundEffects })}
+          className={`px-1.5 py-0.5 rounded border ${
+            settings.soundEffects ? 'border-cyan-600 text-cyan-200 bg-cyan-950/30' : 'border-gray-700 text-gray-500'
+          }`}
+        >
+          CHIMES
+        </button>
+
+        <button
+          type="button"
+          data-testid="audio-settings-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className={`ml-auto px-2 py-0.5 rounded border flex items-center gap-1 ${
+            open ? 'border-green-600 text-green-200 bg-gray-800' : 'border-gray-700 text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <SlidersHorizontal size={10} />
+          AUDIO
+          {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+        </button>
+      </div>
+
+      {open && (
+        <div
+          data-testid="audio-settings-drawer"
+          className="mt-1.5 p-2 rounded bg-black/90 border border-gray-800 space-y-2 text-[10px]"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-gray-200 font-bold">Pilot Voice Style</div>
+              <div className="text-gray-500">Fast responds instantly; AI sounds warmer</div>
+            </div>
+            <button
+              type="button"
+              data-testid="natural-voices-toggle"
+              aria-pressed={settings.naturalVoices}
+              onClick={() => {
+                const next = !settings.naturalVoices;
+                updateVoiceSettings({ naturalVoices: next });
+                if (next) primePilotVoice();
+              }}
+              className={`shrink-0 px-2 py-1 rounded border font-bold ${
+                settings.naturalVoices ? 'border-violet-500 text-violet-200 bg-violet-950/40' : 'border-gray-700 text-gray-300'
+              }`}
+            >
+              {settings.naturalVoices ? 'Natural (AI)' : 'Fast'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-gray-200 font-bold">Mic Speech Recognition</div>
+              <div className="text-gray-500">AI hears ATC callsigns better (runs locally)</div>
+            </div>
+            <button
+              type="button"
+              data-testid="accurate-speech-toggle"
+              aria-pressed={settings.accurateSpeech}
+              onClick={() => updateVoiceSettings({ accurateSpeech: !settings.accurateSpeech })}
+              className={`shrink-0 px-2 py-1 rounded border font-bold ${
+                settings.accurateSpeech ? 'border-violet-500 text-violet-200 bg-violet-950/40' : 'border-gray-700 text-gray-300'
+              }`}
+            >
+              {settings.accurateSpeech ? 'AI Mic' : 'Browser'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-gray-200 font-bold">VHF Radio Filter</div>
+              <div className="text-gray-500">Adds cockpit radio sound to pilot voices</div>
+            </div>
+            <button
+              type="button"
+              aria-pressed={settings.radioEffect}
+              onClick={() => updateVoiceSettings({ radioEffect: !settings.radioEffect })}
+              className={`shrink-0 px-2 py-1 rounded border font-bold ${
+                settings.radioEffect ? 'border-amber-600 text-amber-200 bg-amber-950/30' : 'border-gray-700 text-gray-500'
+              }`}
+            >
+              {settings.radioEffect ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-gray-200 font-bold">Conflict Alert Beep</div>
+              <div className="text-gray-500">Warning tone during loss of separation</div>
+            </div>
+            <button
+              type="button"
+              data-testid="conflict-alert-toggle"
+              aria-pressed={settings.conflictAlertSound}
+              onClick={() => updateVoiceSettings({ conflictAlertSound: !settings.conflictAlertSound })}
+              className={`shrink-0 px-2 py-1 rounded border font-bold ${
+                settings.conflictAlertSound ? 'border-red-600 text-red-200 bg-red-950/30' : 'border-gray-700 text-gray-500'
+              }`}
+            >
+              {settings.conflictAlertSound ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-gray-200 font-bold">Voice Speed ({settings.rate.toFixed(2)}x)</div>
+            <input
+              aria-label="Voice speed"
+              type="range"
+              min={80}
+              max={125}
+              value={Math.round(settings.rate * 100)}
+              onChange={(event) => updateVoiceSettings({ rate: Number(event.target.value) / 100 })}
+              className="w-24 accent-green-500"
+            />
+          </div>
+
+          <div
+            data-testid="voice-status"
+            data-engine={engine}
+            data-stt-engine={sttLabel}
+            className="pt-1 border-t border-gray-800 text-[9px] text-gray-500 flex justify-between"
+            aria-live="polite"
+          >
+            <span>Voice: {statusLabel}</span>
+            <span>Mic: {sttLabel}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
