@@ -2,19 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { Volume2, VolumeX, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 import { getVoiceSettings, subscribeVoiceSettings, updateVoiceSettings, VoiceSettings } from '../services/voiceSettings';
 import { getVoiceRuntime, primePilotVoice, subscribeVoiceRuntime, VoiceRuntime } from '../services/pilotVoice';
-import { getWebWhisperRuntime, subscribeWebWhisper, WebWhisperRuntime } from '../services/webWhisper';
+import { getCloudSttRuntime, subscribeCloudStt, CloudSttRuntime } from '../services/cloudStt';
 import { isDesktopApp } from '../services/desktop';
 import { isSpeechRecognitionSupported } from '../services/speechRecognition';
 
 const VoiceBar: React.FC = () => {
   const [settings, setSettings] = useState<VoiceSettings>(getVoiceSettings);
   const [runtime, setRuntime] = useState<VoiceRuntime>(getVoiceRuntime);
-  const [whisperRt, setWhisperRt] = useState<WebWhisperRuntime>(getWebWhisperRuntime);
+  const [cloudRt, setCloudRt] = useState<CloudSttRuntime>(getCloudSttRuntime);
   const [open, setOpen] = useState(false);
 
   useEffect(() => subscribeVoiceSettings(() => setSettings(getVoiceSettings())), []);
   useEffect(() => subscribeVoiceRuntime(() => setRuntime(getVoiceRuntime())), []);
-  useEffect(() => subscribeWebWhisper(setWhisperRt), []);
+  useEffect(() => subscribeCloudStt(setCloudRt), []);
 
   const engine = !settings.enabled
     ? 'off'
@@ -38,12 +38,8 @@ const VoiceBar: React.FC = () => {
 
   const sttLabel = isDesktopApp()
     ? 'Desktop AI'
-    : settings.accurateSpeech
-      ? whisperRt.phase === 'ready'
-        ? 'AI Mic (ready)'
-        : whisperRt.phase === 'loading'
-          ? `AI Mic ${Math.round(whisperRt.progress * 100)}%`
-          : 'Browser Mic'
+    : cloudRt.available && cloudRt.provider
+      ? `Cloud AI (${cloudRt.provider.toUpperCase()})`
       : isSpeechRecognitionSupported()
         ? 'Browser Mic'
         : 'Unavailable';
@@ -140,20 +136,16 @@ const VoiceBar: React.FC = () => {
 
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-gray-200 font-bold">Mic Speech Recognition</div>
-              <div className="text-gray-500">AI hears ATC callsigns better (runs locally)</div>
+              <div className="text-gray-200 font-bold">Mic Speech Engine</div>
+              <div className="text-gray-500">
+                {cloudRt.available
+                  ? `Fast Cloud ATC Speech (${cloudRt.provider?.toUpperCase()}) active`
+                  : 'Using instant Browser Mic (add GROQ_API_KEY in Vercel for Cloud AI)'}
+              </div>
             </div>
-            <button
-              type="button"
-              data-testid="accurate-speech-toggle"
-              aria-pressed={settings.accurateSpeech}
-              onClick={() => updateVoiceSettings({ accurateSpeech: !settings.accurateSpeech })}
-              className={`shrink-0 px-2 py-1 rounded border font-bold ${
-                settings.accurateSpeech ? 'border-violet-500 text-violet-200 bg-violet-950/40' : 'border-gray-700 text-gray-300'
-              }`}
-            >
-              {settings.accurateSpeech ? 'AI Mic' : 'Browser'}
-            </button>
+            <span className="shrink-0 px-2 py-1 rounded border border-green-700 text-green-300 font-bold">
+              {sttLabel}
+            </span>
           </div>
 
           <div className="flex items-center justify-between gap-2">

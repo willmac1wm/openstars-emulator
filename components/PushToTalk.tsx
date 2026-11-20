@@ -9,14 +9,14 @@ import {
 } from '../services/desktopStt';
 import { getVoiceSettings, subscribeVoiceSettings } from '../services/voiceSettings';
 import {
-  ensureWebWhisperLoading,
-  getWebWhisperRuntime,
-  isWebWhisperReady,
-  startWebWhisperCapture,
-  stopWebWhisperAndTranscribe,
-  subscribeWebWhisper,
-  WebWhisperRuntime,
-} from '../services/webWhisper';
+  getCloudSttRuntime,
+  isCloudSttAvailable,
+  probeCloudStt,
+  startCloudSttCapture,
+  stopCloudSttAndTranscribe,
+  subscribeCloudStt,
+  CloudSttRuntime,
+} from '../services/cloudStt';
 import {
   mapMicError,
   STT_STILL_TRANSCRIBING,
@@ -43,17 +43,18 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
 }) => {
   const [holding, setHolding] = useState(false);
   const [hearingVoice, setHearingVoice] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const desktop = isDesktopApp();
   const [supported] = useState(() => desktop || isSpeechRecognitionSupported());
   const [accurateSpeech, setAccurateSpeech] = useState(() => getVoiceSettings().accurateSpeech);
-  const [whisperRt, setWhisperRt] = useState<WebWhisperRuntime>(getWebWhisperRuntime);
+  const [cloudRt, setCloudRt] = useState<CloudSttRuntime>(getCloudSttRuntime);
   const handleRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
   const callsignsRef = useRef(activeCallsigns);
   callsignsRef.current = activeCallsigns;
   const busyRef = useRef(false);
-  const useWhisperRef = useRef(false);
+  const useCloudRef = useRef(false);
   /** Mirrors `holding` for callbacks (recognition onend fires after render). */
   const holdingRef = useRef(false);
   /** Mid-hold restarts of Web Speech before we give up on a dead mic. */
@@ -66,16 +67,14 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   };
 
   useEffect(() => subscribeVoiceSettings(() => {
-    const next = getVoiceSettings().accurateSpeech;
-    setAccurateSpeech(next);
-    if (next && !desktop) ensureWebWhisperLoading();
-  }), [desktop]);
+    setAccurateSpeech(getVoiceSettings().accurateSpeech);
+  }), []);
 
-  useEffect(() => subscribeWebWhisper(setWhisperRt), []);
+  useEffect(() => subscribeCloudStt(setCloudRt), []);
 
   useEffect(() => {
-    if (accurateSpeech && !desktop) ensureWebWhisperLoading();
-  }, [accurateSpeech, desktop]);
+    if (!desktop) void probeCloudStt();
+  }, [desktop]);
 
   useEffect(() => {
     if (desktop) return undefined;
@@ -129,6 +128,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   const begin = () => {
     setLastError(null);
     setHearingVoice(false);
+    setMicLevel(0);
     if (stopTailTimerRef.current) {
       window.clearTimeout(stopTailTimerRef.current);
       stopTailTimerRef.current = null;
@@ -147,32 +147,24 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       });
       return;
     }
-    const whisperOk = accurateSpeech && isWebWhisperReady();
-    useWhisperRef.current = whisperOk;
-    if (whisperOk) {
+    const cloudOk = isCloudSttAvailable();
+    useCloudRef.current = cloudOk;
+    if (cloudOk) {
       setHoldingState(true);
       restartsRef.current = 0;
-      void startWebWhisperCapture().catch((err) => {
-        useWhisperRef.current = false;
+      void startCloudSttCapture((lvl) => {
+        setMicLevel(lvl);
+        if (lvl > 0.08) setHearingVoice(true);
+      }).catch((err) => {
+        useCloudRef.current = false;
         setHoldingState(false);
         const message = mapMicError(err);
         if (message) reportError(message);
       });
       return;
     }
-    if (accurateSpeech) {
-      // Accurate speech was asked for but its engine isn't ready — say so
-      // once on this press instead of silently using browser mic.
-      if (whisperRt.phase === 'loading') {
-        reportError(`Accurate speech still loading (${Math.round(whisperRt.progress * 100)}%) — using browser mic for now.`);
-      } else if (whisperRt.phase === 'unsupported') {
-        reportError('Accurate speech needs WebGPU — using browser mic.');
-      } else if (whisperRt.phase === 'error') {
-        reportError('Accurate speech failed to load — using browser mic.');
-      }
-    }
     if (!supported) {
-      reportError('Voice commands need Chrome or Edge. Use the tap pad or type.');
+      reportError('Voice commands need Chrome or Edge (or Cloud STT key in Vercel). Use tap or type.');
       return;
     }
     setHoldingState(true);
@@ -182,6 +174,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   };
 
   const end = () => {
+    setMicLevel(0);
     if (desktop) {
       if (!holdingRef.current && !busyRef.current) return;
       setHoldingState(false);
@@ -204,19 +197,19 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
         });
       return;
     }
-    if (useWhisperRef.current) {
+    if (useCloudRef.current) {
       setHoldingState(false);
       busyRef.current = true;
       setTranscribing(true);
-      useWhisperRef.current = false;
-      void stopWebWhisperAndTranscribe(callsignsRef.current)
+      useCloudRef.current = false;
+      void stopCloudSttAndTranscribe(callsignsRef.current)
         .then((payload) => {
           if (payload) {
             if (!payload.transcript.trim()) reportError(WHISPER_HEARD_NOTHING);
             else onTranscript(payload);
             return;
           }
-          reportError(WHISPER_TRANSCRIBE_FAILED);
+          reportError(getCloudSttRuntime().error || WHISPER_TRANSCRIBE_FAILED);
         })
         .finally(() => {
           busyRef.current = false;
@@ -262,14 +255,14 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
 
   const sttHint = (() => {
     if (desktop) return 'Desktop Whisper · or hold SPACEBAR';
-    if (!supported && !accurateSpeech) return 'mic unavailable — use tap / type';
-    if (!accurateSpeech) return 'or hold SPACEBAR';
-    if (whisperRt.phase === 'ready') return 'Accurate STT ready · SPACEBAR';
-    if (whisperRt.phase === 'loading') return `Accurate STT ${Math.round(whisperRt.progress * 100)}%…`;
-    if (whisperRt.phase === 'unsupported') return 'Accurate STT needs WebGPU · using browser mic';
-    if (whisperRt.phase === 'error') return 'Accurate STT unavailable · using browser mic';
-    return 'Accurate STT warming…';
+    if (cloudRt.available && cloudRt.provider) {
+      return `Fast ATC Speech (${cloudRt.provider.toUpperCase()}) · or hold SPACEBAR`;
+    }
+    if (!supported) return 'mic unavailable — use tap / type';
+    return 'Browser Mic · or hold SPACEBAR';
   })();
+
+  void accurateSpeech;
 
   return (
     <div className="w-full flex flex-col gap-1">
@@ -308,6 +301,14 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
               ? 'TRANSCRIBING…'
               : 'HOLD TO TALK'}
         </span>
+        {holding && micLevel > 0 && (
+          <div className="w-3/4 h-1 bg-black/40 rounded overflow-hidden mt-0.5">
+            <div
+              className="h-full bg-green-400 transition-all duration-75"
+              style={{ width: `${Math.round(micLevel * 100)}%` }}
+            />
+          </div>
+        )}
         {!compact && (
           <span className="text-[11px] font-normal opacity-80">{sttHint}</span>
         )}
@@ -321,22 +322,13 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
           {lastError}
         </div>
       )}
-      {accurateSpeech && !desktop && (
+      {cloudRt.available && !desktop && (
         <div
           data-testid="accurate-speech-status"
-          data-phase={whisperRt.phase}
-          className="text-[10px] text-center text-violet-300/90 font-mono"
+          className="text-[10px] text-center text-green-300/80 font-mono"
           aria-live="polite"
         >
-          {whisperRt.phase === 'ready'
-            ? `Accurate speech ready${whisperRt.lastLatencyMs ? ` · last ${whisperRt.lastLatencyMs}ms` : ''}`
-            : whisperRt.phase === 'loading'
-              ? `Downloading Whisper tiny.en… ${Math.round(whisperRt.progress * 100)}%`
-              : whisperRt.phase === 'unsupported'
-                ? 'Accurate speech needs WebGPU — using browser speech'
-                : whisperRt.phase === 'error'
-                  ? 'Accurate speech unavailable — using browser speech'
-                  : 'Accurate speech (beta)'}
+          Cloud ATC Speech ({cloudRt.provider?.toUpperCase()}){cloudRt.lastLatencyMs ? ` · ${cloudRt.lastLatencyMs}ms` : ''}
         </div>
       )}
     </div>
