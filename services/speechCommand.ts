@@ -316,7 +316,8 @@ function extractInstructions(tokens: string[]): string[] {
       let start = i + 2;
       if (tokens[start] === 'heading') start += 1;
       const { words, next } = collectWhile(tokens, start, isNumberWord);
-      const digits = spokenDigitsSequence(words.filter((w) => w !== 'thousand' && w !== 'hundred')) || spokenDigitsSequence(words);
+      const cleaned = words.filter((w) => w !== 'thousand' && w !== 'hundred');
+      const digits = spokenDigitsSequence(cleaned) || spokenGroupNumber(cleaned) || spokenDigitsSequence(words);
       if (digits && digits.length >= 2) {
         parts.push(`${dir}${digits.padStart(3, '0').slice(-3)}`);
         i = next;
@@ -326,7 +327,8 @@ function extractInstructions(tokens: string[]): string[] {
     if ((tokens[i] === 'left' || tokens[i] === 'right') && tokens[i + 1] === 'heading') {
       const dir = tokens[i] === 'left' ? 'TL' : 'TR';
       const { words, next } = collectWhile(tokens, i + 2, isNumberWord);
-      const digits = spokenDigitsSequence(words);
+      const cleaned = words.filter((w) => w !== 'thousand' && w !== 'hundred');
+      const digits = spokenDigitsSequence(cleaned) || spokenGroupNumber(cleaned);
       if (digits) {
         parts.push(`${dir}${digits.padStart(3, '0').slice(-3)}`);
         i = next;
@@ -336,7 +338,8 @@ function extractInstructions(tokens: string[]): string[] {
     if (tokens[i] === 'heading' || (tokens[i] === 'fly' && tokens[i + 1] === 'heading')) {
       const start = tokens[i] === 'fly' ? i + 2 : i + 1;
       const { words, next } = collectWhile(tokens, start, isNumberWord);
-      const digits = spokenDigitsSequence(words);
+      const cleaned = words.filter((w) => w !== 'thousand' && w !== 'hundred');
+      const digits = spokenDigitsSequence(cleaned) || spokenGroupNumber(cleaned);
       if (digits) {
         parts.push(`H${digits.padStart(3, '0').slice(-3)}`);
         i = next;
@@ -384,7 +387,8 @@ function extractInstructions(tokens: string[]): string[] {
         start += 1;
       }
       const { words, next } = collectWhile(tokens, start, isNumberWord);
-      const digits = spokenDigitsSequence(words.filter((w) => w !== 'thousand' && w !== 'hundred'));
+      const cleaned = words.filter((w) => w !== 'thousand' && w !== 'hundred');
+      const digits = spokenDigitsSequence(cleaned) || spokenGroupNumber(cleaned);
       if (digits) {
         parts.push(`S${digits}`);
         i = next;

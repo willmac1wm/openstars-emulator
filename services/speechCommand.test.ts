@@ -113,4 +113,11 @@ describe('parseSpokenClearance', () => {
     );
     expect(parsed.command).toBe('UAL123 TR090');
   });
+
+  it('parses fly heading 360 in digit and group form', () => {
+    expect(parseSpokenClearance('American 421 fly heading 360', scope).command).toBe('AAL421 H360');
+    expect(parseSpokenClearance('American 421 fly heading three sixty', scope).command).toBe('AAL421 H360');
+    expect(parseSpokenClearance('American 421 fly heading three hundred sixty', scope).command).toBe('AAL421 H360');
+    expect(parseSpokenClearance('American four twenty one fly heading three six zero', scope).command).toBe('AAL421 H360');
+  });
 });
