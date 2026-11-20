@@ -118,9 +118,14 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
 
   const beginRef = useRef<() => void>(() => undefined);
   const endRef = useRef<() => void>(() => undefined);
+  const stopTailTimerRef = useRef<number | null>(null);
 
   const begin = () => {
     setLastError(null);
+    if (stopTailTimerRef.current) {
+      window.clearTimeout(stopTailTimerRef.current);
+      stopTailTimerRef.current = null;
+    }
     if (disabled || busyRef.current) {
       if (busyRef.current) reportError(STT_STILL_TRANSCRIBING);
       return;
@@ -213,7 +218,13 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       return;
     }
     setHoldingState(false);
-    handleRef.current?.stop();
+    // Keep Chrome's Web Speech stream open for a brief 350ms squelch tail on
+    // release so the final word ("360") flushes instead of getting clipped.
+    if (stopTailTimerRef.current) window.clearTimeout(stopTailTimerRef.current);
+    stopTailTimerRef.current = window.setTimeout(() => {
+      stopTailTimerRef.current = null;
+      handleRef.current?.stop();
+    }, 350);
   };
 
   beginRef.current = begin;
