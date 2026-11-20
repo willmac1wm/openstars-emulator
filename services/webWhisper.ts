@@ -185,16 +185,13 @@ export async function stopWebWhisperAndTranscribe(callsigns: string[]): Promise<
   }
   if (!isWebWhisperReady() || !pipeline) return null;
 
-  const prompt = buildAtcInitialPrompt(callsigns);
   const t0 = performance.now();
   try {
     // transformers.js WhisperFeatureExtractor expects a raw Float32Array @ 16 kHz.
-    // tiny.en is English-only — do not pass language/task (rejected by generate()).
+    // tiny.en is English-only — do not pass language/task or raw initial_prompt string.
     const result = await withTimeout(
       pipeline(pcm, {
         return_timestamps: false,
-        // Bias decoding toward ATC phraseology + live callsigns (no audio leaves device).
-        initial_prompt: prompt,
       }),
       TRANSCRIBE_BUDGET_MS,
       'Whisper transcribe',

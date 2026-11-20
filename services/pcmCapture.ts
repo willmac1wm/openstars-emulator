@@ -10,7 +10,11 @@ export function downsamplePcm(input: Float32Array, inRate: number): Float32Array
   const outLen = Math.floor(input.length / ratio);
   const out = new Float32Array(outLen);
   for (let i = 0; i < outLen; i++) {
-    out[i] = input[Math.floor(i * ratio)] ?? 0;
+    const start = Math.floor(i * ratio);
+    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += input[j];
+    out[i] = sum / (end - start);
   }
   return out;
 }
@@ -27,12 +31,14 @@ export function createPcmCapture(): PcmCaptureSession {
   let processor: ScriptProcessorNode | null = null;
   let chunks: Float32Array[] = [];
   let capturing = false;
+  let cancelled = false;
 
   return {
     async start() {
       if (capturing) return;
+      cancelled = false;
       chunks = [];
-      mediaStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
@@ -40,7 +46,15 @@ export function createPcmCapture(): PcmCaptureSession {
           autoGainControl: true,
         },
       });
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      mediaStream = stream;
       audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume().catch(() => undefined);
+      }
       const source = audioCtx.createMediaStreamSource(mediaStream);
       processor = audioCtx.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = (ev) => {
@@ -56,6 +70,7 @@ export function createPcmCapture(): PcmCaptureSession {
       capturing = true;
     },
     async stop() {
+      cancelled = true;
       capturing = false;
       const inRate = audioCtx?.sampleRate ?? 48_000;
       try {

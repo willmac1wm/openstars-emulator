@@ -50,6 +50,8 @@ interface ControlPanelProps {
   onSpeechError?: (message: string) => void;
   /** Live scope callsigns for Whisper / SpeechGrammar bias. */
   activeCallsigns?: string[];
+  /** Live speech transcript shown in Lesson modes (Expo HUD renders its own). */
+  liveTranscript?: string;
   /** Show/hide the heading dial / tap clearance pad (controlled by App so Expo HUD shares state). */
   showTapPad?: boolean;
   onToggleTapPad?: () => void;
@@ -94,6 +96,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onTranscript,
   onSpeechError,
   activeCallsigns = [],
+  liveTranscript = '',
   showTapPad: controlledShowTapPad,
   onToggleTapPad,
 }) => {
@@ -539,7 +542,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           data-testid="lesson-tap-slot"
         >
           {onTranscript && (
-            <div className="shrink-0 pb-1">
+            <div className="shrink-0 pb-1 space-y-1">
               <PushToTalk
                 compact
                 disabled={!canCommand}
@@ -547,6 +550,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 onError={onSpeechError}
                 activeCallsigns={activeCallsigns}
               />
+              {liveTranscript && (
+                <div
+                  data-testid="lesson-live-transcript"
+                  className="bg-black border border-cyan-900 rounded px-2 py-0.5 text-cyan-200 text-[10px] font-mono truncate"
+                  aria-live="polite"
+                  title={liveTranscript}
+                >
+                  Heard: {liveTranscript}
+                </div>
+              )}
             </div>
           )}
           {showTapPad && <TapCommandPad aircraft={selectedAircraft} onIssue={onCommand} />}

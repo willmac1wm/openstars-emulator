@@ -246,10 +246,15 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
         disabled={disabled}
         onPointerDown={(event) => {
           event.preventDefault();
+          event.currentTarget.setPointerCapture?.(event.pointerId);
           begin();
         }}
-        onPointerUp={end}
-        onPointerLeave={() => holding && end()}
+        onPointerUp={() => {
+          if (holdingRef.current) end();
+        }}
+        onPointerCancel={() => {
+          if (holdingRef.current) end();
+        }}
         onContextMenu={(event) => event.preventDefault()}
         className={`w-full rounded-xl border-2 font-bold tracking-wide flex flex-col items-center justify-center select-none ${
           compact

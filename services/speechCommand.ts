@@ -561,6 +561,7 @@ export function parseSpokenClearance(transcriptRaw: string, aircraft: Aircraft[]
 export function parseBestSpokenClearance(
   alternatives: SpeechAlternative[],
   aircraft: Aircraft[],
+  opts?: { fallbackSelected?: boolean },
 ): SpeechParseResult {
   const alts = alternatives.length
     ? alternatives
@@ -584,6 +585,29 @@ export function parseBestSpokenClearance(
     if (score > bestScore) {
       bestScore = score;
       best = combined;
+    }
+  }
+
+  // If the user already selected an aircraft on the scope and spoke valid
+  // instructions without (or with a garbled) callsign, target the selected
+  // aircraft and stage it into the command line for quick confirmation.
+  if (opts?.fallbackSelected && (!best || !best.ok)) {
+    const selected = aircraft.find((a) => a.isSelected);
+    if (selected) {
+      for (const alt of alts) {
+        const repaired = normalizeTranscript(alt.transcript);
+        const tokens = tokenize(repaired);
+        const instructions = extractInstructions(tokens);
+        if (instructions.length > 0) {
+          return {
+            ok: true,
+            transcript: alt.transcript,
+            callsign: selected.callsign,
+            command: `${selected.callsign} ${instructions.join(' ')}`,
+            confidence: 0.78,
+          };
+        }
+      }
     }
   }
 

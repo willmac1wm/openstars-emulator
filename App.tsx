@@ -687,12 +687,12 @@ const App: React.FC = () => {
     const alts = payload.alternatives?.length
       ? payload.alternatives
       : [{ transcript: text, confidence: 0 }];
-    const spoken = parseBestSpokenClearance(alts, aircraftRef.current);
+    const spoken = parseBestSpokenClearance(alts, aircraftRef.current, { fallbackSelected: true });
 
     if (!spoken.ok || !spoken.command) {
-      // Unparsed / ambiguous → say again once — never "unable".
+      // Surface exactly what the mic heard so the user can see why it didn't match.
       const line = spoken.message || 'Say again';
-      addLog(line, 'pilot');
+      addLog(`HEARD: "${text}" — ${line}`, 'pilot');
       speakPilot(line, spoken.callsign || 'PILOT');
       spokenCommittedRef.current = null;
       return;
@@ -1506,6 +1506,7 @@ const App: React.FC = () => {
         }}
         onTranscript={handleSpokenTranscript}
         onSpeechError={handleSpeechError}
+        liveTranscript={liveTranscript}
         activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
         arcadeHud={playMode === 'expo' && (gameState === SimulationState.RUNNING || gameState === SimulationState.PAUSED) ? (
           <ExpoArcadeHUD
