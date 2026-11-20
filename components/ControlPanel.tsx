@@ -113,6 +113,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const historyIdxRef = useRef(-1);
   const autoIssueTimerRef = useRef<number | null>(null);
   const lastSpokenTokenRef = useRef<number | null>(null);
+  const onCommandRef = useRef(onCommand);
+  onCommandRef.current = onCommand;
+  const onSpokenFillConsumedRef = useRef(onSpokenFillConsumed);
+  onSpokenFillConsumedRef.current = onSpokenFillConsumed;
 
   // Only auto-open the on-screen keyboard on touch devices; desktop testers have a physical keyboard
   // and can toggle it on/off anytime with the KEYS button.
@@ -151,7 +155,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [gameActive]);
 
-  // Spoken preview → command line (auto-issue or confirm)
+  // Spoken preview → command line (auto-issue or confirm).
+  // Uses refs for callbacks so 60fps radar-sweep re-renders NEVER cancel the auto-issue timer.
   useEffect(() => {
     if (!spokenFill || spokenFill.token === lastSpokenTokenRef.current) return;
     lastSpokenTokenRef.current = spokenFill.token;
@@ -162,28 +167,32 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     setInputValue(spokenFill.command);
     setSpeechConfidence(spokenFill.confidence);
     setSpeechPending(spokenFill.pendingConfirm);
-    inputRef.current?.focus();
 
     if (!spokenFill.pendingConfirm) {
       const token = spokenFill.token;
       const cmd = spokenFill.command;
       autoIssueTimerRef.current = window.setTimeout(() => {
+        autoIssueTimerRef.current = null;
         historyRef.current = [cmd, ...historyRef.current.filter((h) => h !== cmd)].slice(0, 20);
         historyIdxRef.current = -1;
-        onCommand(cmd);
+        onCommandRef.current(cmd);
         setInputValue('');
         setSpeechConfidence(null);
         setSpeechPending(false);
-        onSpokenFillConsumed?.(token);
-      }, 1000);
+        onSpokenFillConsumedRef.current?.(token);
+      }, 350);
+    } else {
+      inputRef.current?.focus();
     }
-    return () => {
-      if (autoIssueTimerRef.current) {
-        window.clearTimeout(autoIssueTimerRef.current);
-        autoIssueTimerRef.current = null;
-      }
-    };
-  }, [spokenFill, onCommand, onSpokenFillConsumed]);
+  }, [spokenFill]);
+
+  // Clear any pending spoken auto-issue timer only on unmount.
+  useEffect(() => () => {
+    if (autoIssueTimerRef.current) {
+      window.clearTimeout(autoIssueTimerRef.current);
+      autoIssueTimerRef.current = null;
+    }
+  }, []);
 
   // Auto-scroll logs
   useEffect(() => {

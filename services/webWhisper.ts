@@ -205,8 +205,12 @@ export async function stopWebWhisperAndTranscribe(callsigns: string[]): Promise<
       alternatives: cleaned ? [{ transcript: cleaned, confidence: 0.88 }] : [],
       isFinal: true,
     };
-  } catch {
-    setRuntime({ lastLatencyMs: Math.round(performance.now() - t0) });
+  } catch (err) {
+    console.error('[OpenSTARS Whisper] transcribe failed:', err);
+    setRuntime({
+      lastLatencyMs: Math.round(performance.now() - t0),
+      error: err instanceof Error ? err.message : 'Whisper transcribe failed',
+    });
     return null;
   }
 }

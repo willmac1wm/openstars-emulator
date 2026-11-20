@@ -33,58 +33,57 @@ export function createPcmCapture(): PcmCaptureSession {
   let capturing = false;
   let cancelled = false;
 
+  const ensurePipeline = async () => {
+    const alive = mediaStream?.getAudioTracks().some((t) => t.readyState === 'live');
+    if (alive && audioCtx && processor) {
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume().catch(() => undefined);
+      }
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    if (cancelled) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    mediaStream = stream;
+    audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume().catch(() => undefined);
+    }
+    const source = audioCtx.createMediaStreamSource(mediaStream);
+    processor = audioCtx.createScriptProcessor(2048, 1, 1);
+    processor.onaudioprocess = (ev) => {
+      if (!capturing) return;
+      const input = ev.inputBuffer.getChannelData(0);
+      chunks.push(new Float32Array(input));
+    };
+    const mute = audioCtx.createGain();
+    mute.gain.value = 0;
+    source.connect(processor);
+    processor.connect(mute);
+    mute.connect(audioCtx.destination);
+  };
+
   return {
     async start() {
       if (capturing) return;
       cancelled = false;
       chunks = [];
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      mediaStream = stream;
-      audioCtx = new AudioContext();
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume().catch(() => undefined);
-      }
-      const source = audioCtx.createMediaStreamSource(mediaStream);
-      processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      processor.onaudioprocess = (ev) => {
-        if (!capturing) return;
-        const input = ev.inputBuffer.getChannelData(0);
-        chunks.push(new Float32Array(input));
-      };
-      const mute = audioCtx.createGain();
-      mute.gain.value = 0;
-      source.connect(processor);
-      processor.connect(mute);
-      mute.connect(audioCtx.destination);
-      capturing = true;
+      await ensurePipeline();
+      if (!cancelled) capturing = true;
     },
     async stop() {
       cancelled = true;
       capturing = false;
       const inRate = audioCtx?.sampleRate ?? 48_000;
-      try {
-        processor?.disconnect();
-        mediaStream?.getTracks().forEach((t) => t.stop());
-      } catch {
-        /* ignore */
-      }
-      processor = null;
-      mediaStream = null;
-      if (audioCtx) {
-        void audioCtx.close();
-        audioCtx = null;
-      }
       if (!chunks.length) return new Float32Array(0);
       const total = chunks.reduce((n, c) => n + c.length, 0);
       const merged = new Float32Array(total);

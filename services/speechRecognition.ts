@@ -88,6 +88,8 @@ export function createSpeechRecognition(handlers: {
   }
 
   let callsigns = handlers.callsigns ? [...handlers.callsigns] : [];
+  let lastInterim: SpeechResultPayload | null = null;
+  let emittedFinal = false;
   const recognition = new Ctor();
   recognition.lang = 'en-US';
   recognition.continuous = true;
@@ -115,13 +117,17 @@ export function createSpeechRecognition(handlers: {
     }
 
     if (interim.trim()) {
-      handlers.onPartial?.({
+      const payload: SpeechResultPayload = {
         transcript: interim.trim(),
         alternatives: interimAlts.length ? interimAlts : [{ transcript: interim.trim(), confidence: 0 }],
         isFinal: false,
-      });
+      };
+      lastInterim = payload;
+      handlers.onPartial?.(payload);
     }
     if (finalText.trim()) {
+      emittedFinal = true;
+      lastInterim = null;
       const primary = finalText.trim();
       const alts = finalAlts.length
         ? finalAlts
@@ -145,7 +151,17 @@ export function createSpeechRecognition(handlers: {
     if (message) handlers.onError?.(message);
   };
 
-  recognition.onend = () => handlers.onEnd?.();
+  recognition.onend = () => {
+    // Chrome frequently stops recognition on PTT release without flipping the
+    // last interim result to isFinal=true. Promote it so the command isn't dropped.
+    if (!emittedFinal && lastInterim && lastInterim.transcript.trim()) {
+      const promoted: SpeechResultPayload = { ...lastInterim, isFinal: true };
+      lastInterim = null;
+      emittedFinal = true;
+      handlers.onFinal?.(promoted);
+    }
+    handlers.onEnd?.();
+  };
 
   return {
     engine: 'webspeech',
@@ -155,6 +171,8 @@ export function createSpeechRecognition(handlers: {
       applyGrammars(recognition, callsigns);
     },
     start: () => {
+      lastInterim = null;
+      emittedFinal = false;
       applyGrammars(recognition, callsigns);
       try {
         recognition.start();
