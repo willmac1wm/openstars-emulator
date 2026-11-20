@@ -42,6 +42,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
   activeCallsigns = [],
 }) => {
   const [holding, setHolding] = useState(false);
+  const [hearingVoice, setHearingVoice] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const desktop = isDesktopApp();
@@ -80,10 +81,15 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
     if (desktop) return undefined;
     handleRef.current = createSpeechRecognition({
       callsigns: callsignsRef.current,
-      onPartial: (payload) => onTranscript(payload),
+      onSpeechStart: () => setHearingVoice(true),
+      onPartial: (payload) => {
+        setHearingVoice(true);
+        onTranscript(payload);
+      },
       onFinal: (payload) => onTranscript(payload),
-      onError: (message) => onError?.(message),
+      onError: (message) => reportError(message),
       onEnd: () => {
+        setHearingVoice(false);
         if (!holdingRef.current) {
           setHolding(false);
           return;
@@ -122,6 +128,7 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
 
   const begin = () => {
     setLastError(null);
+    setHearingVoice(false);
     if (stopTailTimerRef.current) {
       window.clearTimeout(stopTailTimerRef.current);
       stopTailTimerRef.current = null;
@@ -295,7 +302,11 @@ const PushToTalk: React.FC<PushToTalkProps> = ({
       >
         <span className="flex items-center gap-2">
           {holding ? <Mic size={compact ? 16 : 22} /> : <MicOff size={compact ? 16 : 22} />}
-          {holding ? 'LISTENING…' : transcribing ? 'TRANSCRIBING…' : 'HOLD TO TALK'}
+          {holding
+            ? (hearingVoice ? 'HEARING VOICE…' : 'LISTENING…')
+            : transcribing
+              ? 'TRANSCRIBING…'
+              : 'HOLD TO TALK'}
         </span>
         {!compact && (
           <span className="text-[11px] font-normal opacity-80">{sttHint}</span>

@@ -73,6 +73,7 @@ export function createSpeechRecognition(handlers: {
   onFinal?: (payload: SpeechResultPayload) => void;
   onError?: (message: string) => void;
   onEnd?: () => void;
+  onSpeechStart?: () => void;
   /** Initial scope callsigns for SpeechGrammarList bias. */
   callsigns?: string[];
 }): SpeechRecognitionHandle {
@@ -97,6 +98,7 @@ export function createSpeechRecognition(handlers: {
     inst.onresult = null;
     inst.onerror = null;
     inst.onend = null;
+    inst.onspeechstart = null;
     try {
       inst.abort();
     } catch {
@@ -110,13 +112,19 @@ export function createSpeechRecognition(handlers: {
     detach(recognition);
     const inst = new Ctor();
     inst.lang = 'en-US';
-    inst.continuous = true;
+    // Single-utterance mode (continuous = false) is Chrome's fast PTT path:
+    // streams interim words immediately and finalizes cleanly on release.
+    inst.continuous = false;
     inst.interimResults = true;
     inst.maxAlternatives = 5;
-    applyGrammars(inst, callsigns);
 
     lastInterim = null;
     emittedFinal = false;
+
+    inst.onspeechstart = () => {
+      if (inst !== recognition) return;
+      handlers.onSpeechStart?.();
+    };
 
     inst.onresult = (event: SpeechRecognitionEvent) => {
       if (inst !== recognition) return;
