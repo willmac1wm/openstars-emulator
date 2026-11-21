@@ -1,4 +1,5 @@
 import { Aircraft } from '../types';
+import { GATES } from '../constants';
 import {
   finishReadback,
   readbackAltitude,
@@ -93,6 +94,63 @@ export function parseCommand(cmdRaw: string, aircraft: Aircraft[], selectedId: s
 
   const tokens: Token[] = [];
   let match: RegExpExecArray | null;
+
+  // DIRECT <GATE> (e.g. DIRECT NOR / DIRECT EAS / DIRECT SOU / DIRECT WES)
+  const directMatch = cmdBody.match(/(?:^|\s)(?:PROCEED\s+)?DIRECT\s+(NOR|NORTH|EAS|EAST|EST|SOU|SOUTH|WES|WEST|WST)\b/i);
+  if (directMatch) {
+    const rawGate = directMatch[1].toUpperCase();
+    const gateId = rawGate.startsWith('N') ? 'NOR' : rawGate.startsWith('E') ? 'EAS' : rawGate.startsWith('S') ? 'SOU' : 'WES';
+    const gate = GATES.find((g) => g.id === gateId);
+    if (gate) {
+      let deg = Math.round((Math.atan2(gate.fix.x - target.x, -(gate.fix.y - target.y)) * 180) / Math.PI);
+      if (deg <= 0) deg += 360;
+      const targetHeading = deg % 360;
+      const direction = turnDirection(target.heading, targetHeading);
+      tokens.push({
+        ok: true,
+        clause: `direct ${gate.label.toLowerCase()}, ${readbackHeading(deg, direction)}`,
+        apply: (patch) => {
+          patch.targetHeading = targetHeading;
+          patch.turnDirection = undefined;
+          patch.clearTurnDirection = true;
+        },
+      });
+    }
+  }
+
+  // Relative turns: REL_L20 / REL_R20 (from spoken "turn 20 degrees left/right")
+  const relMatch = cmdBody.match(/(?:^|\s)REL_(L|R)(\d{1,3})\b/i);
+  if (relMatch) {
+    const dir = relMatch[1].toUpperCase() === 'L' ? 'LEFT' : 'RIGHT';
+    const delta = Math.min(180, Math.max(5, parseInt(relMatch[2], 10)));
+    const nextRaw = Math.round(target.heading + (dir === 'LEFT' ? -delta : delta));
+    const targetHeading = ((nextRaw % 360) + 360) % 360;
+    const spokenHeading = targetHeading === 0 ? 360 : targetHeading;
+    tokens.push({
+      ok: true,
+      clause: readbackHeading(spokenHeading, dir),
+      apply: (patch) => {
+        patch.targetHeading = targetHeading;
+        patch.turnDirection = dir;
+        patch.clearTurnDirection = false;
+      },
+    });
+  }
+
+  // Present heading: PRESENT (from spoken "fly present heading")
+  if (/(?:^|\s)PRESENT\b/i.test(cmdBody)) {
+    const cur = ((Math.round(target.heading) % 360) + 360) % 360;
+    const spokenHeading = cur === 0 ? 360 : cur;
+    tokens.push({
+      ok: true,
+      clause: `present heading ${spokenHeading}`,
+      apply: (patch) => {
+        patch.targetHeading = cur;
+        patch.turnDirection = undefined;
+        patch.clearTurnDirection = true;
+      },
+    });
+  }
 
   while ((match = hdgRegex.exec(cmdBody)) !== null) {
     const type = match[1].toUpperCase();

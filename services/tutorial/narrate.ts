@@ -10,11 +10,13 @@ import {
   stopInstructorAudio,
   subscribeVoiceRuntime,
 } from '../pilotVoice';
+import { getVoiceSettings } from '../voiceSettings';
 
 export type InstructorEngine = 'kokoro' | 'webspeech';
 
-let lastEngine: InstructorEngine = 'webspeech';
+let lastEngine: InstructorEngine = 'kokoro';
 const engineListeners = new Set<(engine: InstructorEngine) => void>();
+let activeClip: HTMLAudioElement | null = null;
 
 /** Track narrations requested (for E2E assertions). */
 const narrationLog: string[] = [];
@@ -42,10 +44,10 @@ export function clearNarrationLog(): void {
   narrationLog.length = 0;
 }
 
-/** Prefer natural voice once ready; fall back to Web Speech within ~2s on stall. */
+/** Play pre-rendered studio MP3 clip when stepId is provided; fall back to TTS otherwise. */
 export function speakInstructor(
   text: string,
-  opts?: { rate?: number; onend?: () => void; prewarmNext?: string },
+  opts?: { stepId?: string; rate?: number; onend?: () => void; prewarmNext?: string },
 ): void {
   if (!text) {
     opts?.onend?.();
@@ -55,19 +57,68 @@ export function speakInstructor(
   if (typeof window !== 'undefined') {
     (window as Window & { __tutorialNarrations?: string[] }).__tutorialNarrations = [...narrationLog];
   }
-  // Badge tracks what we will try first (slow neural → Web Speech immediately).
-  const natural = isInstructorNaturalReady() && getVoiceRuntime().neuralFastEnough;
-  setEngine(natural ? 'kokoro' : 'webspeech');
-  speakInstructorLine(text, {
-    rate: opts?.rate ?? 1.05,
-    onend: opts?.onend,
-    prewarmNext: opts?.prewarmNext,
-    /** Stall budget before falling back to Web Speech for this line. */
-    kokoroBudgetMs: 3_500,
-  });
+
+  // Stop any previous studio clip cleanly.
+  if (activeClip) {
+    try {
+      activeClip.pause();
+      activeClip.src = '';
+    } catch {
+      /* ignore */
+    }
+    activeClip = null;
+  }
+
+  const fallbackTts = () => {
+    const natural = isInstructorNaturalReady() && getVoiceRuntime().neuralFastEnough;
+    setEngine(natural ? 'kokoro' : 'webspeech');
+    speakInstructorLine(text, {
+      rate: opts?.rate ?? 1.05,
+      onend: opts?.onend,
+      prewarmNext: opts?.prewarmNext,
+      kokoroBudgetMs: 3_500,
+    });
+  };
+
+  if (opts?.stepId && typeof Audio !== 'undefined') {
+    const settings = getVoiceSettings();
+    if (!settings.enabled) {
+      opts.onend?.();
+      return;
+    }
+    stopInstructorAudio();
+    const clip = new Audio(`/audio/tutorial/${opts.stepId}.mp3`);
+    clip.volume = settings.volume;
+    clip.onended = () => {
+      if (activeClip === clip) activeClip = null;
+      opts.onend?.();
+    };
+    clip.onerror = () => {
+      if (activeClip === clip) activeClip = null;
+      fallbackTts();
+    };
+    activeClip = clip;
+    setEngine('kokoro');
+    void clip.play().catch(() => {
+      if (activeClip === clip) activeClip = null;
+      fallbackTts();
+    });
+    return;
+  }
+
+  fallbackTts();
 }
 
 export function stopInstructorSpeech(): void {
+  if (activeClip) {
+    try {
+      activeClip.pause();
+      activeClip.src = '';
+    } catch {
+      /* ignore */
+    }
+    activeClip = null;
+  }
   stopInstructorAudio();
 }
 

@@ -310,6 +310,57 @@ function extractInstructions(tokens: string[]): string[] {
   const parts: string[] = [];
   let i = 0;
   while (i < tokens.length) {
+    // "proceed direct north/east/south/west" or "direct north"
+    if (tokens[i] === 'direct' || (tokens[i] === 'proceed' && tokens[i + 1] === 'direct')) {
+      const idx = tokens[i] === 'proceed' ? i + 2 : i + 1;
+      const g = tokens[idx];
+      if (g === 'north' || g === 'nor' || g === 'east' || g === 'eas' || g === 'est' || g === 'south' || g === 'sou' || g === 'west' || g === 'wes' || g === 'wst') {
+        const id = g.startsWith('n') ? 'NOR' : g.startsWith('e') ? 'EAS' : g.startsWith('s') ? 'SOU' : 'WES';
+        parts.push(`DIRECT ${id}`);
+        i = idx + 1;
+        continue;
+      }
+    }
+
+    // "fly present heading" / "maintain present heading" / "present heading"
+    if (
+      (tokens[i] === 'present' && tokens[i + 1] === 'heading')
+      || ((tokens[i] === 'fly' || tokens[i] === 'maintain') && tokens[i + 1] === 'present' && tokens[i + 2] === 'heading')
+    ) {
+      parts.push('PRESENT');
+      i += tokens[i] === 'present' ? 2 : 3;
+      continue;
+    }
+
+    // Relative turns: "turn 20 degrees left" / "turn left 20 degrees" / "left 20 degrees"
+    if (tokens[i] === 'turn' && isNumberWord(tokens[i + 1] || '')) {
+      const { words, next } = collectWhile(tokens, i + 1, isNumberWord);
+      const deg = spokenGroupNumber(words) || spokenDigitsSequence(words);
+      let after = next;
+      if (tokens[after] === 'degrees' || tokens[after] === 'degree') after += 1;
+      if (deg && (tokens[after] === 'left' || tokens[after] === 'right')) {
+        parts.push(`REL_${tokens[after] === 'left' ? 'L' : 'R'}${deg}`);
+        i = after + 1;
+        continue;
+      }
+    }
+    if ((tokens[i] === 'turn' && (tokens[i + 1] === 'left' || tokens[i + 1] === 'right')) || tokens[i] === 'left' || tokens[i] === 'right') {
+      const isTurn = tokens[i] === 'turn';
+      const dirWord = isTurn ? tokens[i + 1] : tokens[i];
+      const numStart = isTurn ? i + 2 : i + 1;
+      if (tokens[numStart] && tokens[numStart] !== 'heading' && isNumberWord(tokens[numStart])) {
+        const { words, next } = collectWhile(tokens, numStart, isNumberWord);
+        if (tokens[next] === 'degrees' || tokens[next] === 'degree') {
+          const deg = spokenGroupNumber(words) || spokenDigitsSequence(words);
+          if (deg) {
+            parts.push(`REL_${dirWord === 'left' ? 'L' : 'R'}${deg}`);
+            i = next + 1;
+            continue;
+          }
+        }
+      }
+    }
+
     // turn left / left heading
     if (tokens[i] === 'turn' && (tokens[i + 1] === 'left' || tokens[i + 1] === 'right')) {
       const dir = tokens[i + 1] === 'left' ? 'TL' : 'TR';

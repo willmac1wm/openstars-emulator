@@ -427,10 +427,21 @@ const RadarScope: React.FC<RadarScopeProps> = ({
       onPointerUp={handleSvgPointerUp}
       onPointerCancel={handleSvgPointerUp}
     >
-      {/* Background Grid / Range Rings (10 / 20 / 30 NM — same NM→px as J-rings) */}
+      {/* Background Grid / Range Rings (10 / 20 / 30 NM) + 35 NM Airspace Boundary */}
       <circle cx={cx} cy={cy} r={nmToPx(10)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
       <circle cx={cx} cy={cy} r={nmToPx(20)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
       <circle cx={cx} cy={cy} r={nmToPx(30)} fill="none" stroke="#333" strokeWidth="1" opacity="0.2" />
+      <circle
+        data-testid="airspace-boundary-ring"
+        cx={cx}
+        cy={cy}
+        r={GATE_RADIUS}
+        fill="none"
+        stroke="#4b5563"
+        strokeWidth="1"
+        strokeDasharray="4 8"
+        opacity="0.4"
+      />
       
       {compassTicks}
 

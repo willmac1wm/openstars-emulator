@@ -32,7 +32,7 @@ function menuHtml(props: Partial<React.ComponentProps<typeof MainMenu>> = {}): s
 describe('simplified main menu', () => {
   it('renders all five session cards, How to Play, and the footer line', () => {
     const html = menuHtml();
-    for (const label of ['EXPO ARCADE', '60-SECOND CHALLENGE', 'SECTOR SATURATION', 'TRAINEE', 'CONTROLLER', 'VETERAN']) {
+    for (const label of ['EXPO ARCADE', '3-MINUTE SPRINT', 'SECTOR SATURATION', 'TRAINEE', 'CONTROLLER', 'VETERAN']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('HOW TO PLAY');
@@ -71,10 +71,10 @@ describe('simplified main menu', () => {
     expect(html).toContain('data-testid="profile-open"');
   });
 
-  it('shows the 60-second card before Trainee in the markup', () => {
+  it('shows the 3-minute sprint card before Trainee in the markup', () => {
     const html = menuHtml();
-    expect(html.indexOf('60-SECOND CHALLENGE')).toBeLessThan(html.indexOf('TRAINEE'));
-    expect(html.indexOf('EXPO ARCADE')).toBeLessThan(html.indexOf('60-SECOND CHALLENGE'));
+    expect(html.indexOf('3-MINUTE SPRINT')).toBeLessThan(html.indexOf('TRAINEE'));
+    expect(html.indexOf('EXPO ARCADE')).toBeLessThan(html.indexOf('3-MINUTE SPRINT'));
   });
 
   it('renders the ops-room photo background with a dark overlay, hero first', () => {

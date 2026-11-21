@@ -7,8 +7,8 @@ import {
 } from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
-/** 60-Second Challenge: one minute, escalating waves, no tutorial needed. */
-export const SIXTY_SECOND_DURATION_MS = 60 * 1000;
+/** 3-Minute Sprint (formerly 60-Second Challenge): sized for outer-ring protected-area transits at 8x. */
+export const SIXTY_SECOND_DURATION_MS = 3 * 60 * 1000;
 export const ATTRACT_IDLE_MS = 60 * 1000;
 /** Second plane of the opening pair arrives after this delay. */
 export const ARCADE_STAGGER_MS = 12_000;
@@ -115,12 +115,12 @@ export function arcadeWaveAircraft(plan: ArcadeRoundPlan, waveIndex: number): Ai
  * and earlier waves (0 / 12 / 18 s) so aircraft aren't spawned right next
  * to their exit gate while still fitting inside the 60 s timer.
  */
-export function buildSixtySecondRound(seedLabel = 'sixty-1'): ArcadeRoundPlan {
+export function buildSixtySecondRound(seedLabel = 'sprint-1'): ArcadeRoundPlan {
   return buildArcadeRoundPlan(seedLabel, {
-    name: '60-Second Challenge',
+    name: '3-Minute Sprint',
     durationMs: SIXTY_SECOND_DURATION_MS,
     distanceNm: EXPO_SIXTY_SPAWN_DISTANCE_NM,
-    waveAtMs: [0, ARCADE_STAGGER_MS, 18_000],
+    waveAtMs: [0, ARCADE_STAGGER_MS, 30_000],
     waveCount: 3,
   });
 }

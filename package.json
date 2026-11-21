@@ -7,7 +7,7 @@
     "fetch-voice": "node scripts/fetch-kokoro-assets.mjs",
     "fetch-whisper": "node scripts/fetch-whisper-assets.mjs",
     "fetch-desktop-models": "node scripts/fetch-desktop-models.mjs",
-    "prebuild": "npm run fetch-voice && npm run fetch-whisper",
+    "prebuild": "npm run fetch-voice",
     "build": "tsc && vite build",
     "build:desktop": "cross-env VITE_OPENSTARS_DESKTOP=1 tsc && cross-env VITE_OPENSTARS_DESKTOP=1 vite build",
     "preview": "vite preview",

@@ -51,7 +51,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'scope',
     narration:
-      'This black screen is your radar. Planes are the little chevrons. Green rings show how far they are from the middle.',
+      'This black screen is your radar. Planes are the blue targets with speed lines. Range rings show how far they are from the middle.',
     highlight: { kind: 'region', id: 'scope' },
     dwellMs: 5000,
   },

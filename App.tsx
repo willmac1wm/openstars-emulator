@@ -98,6 +98,8 @@ const INITIAL_STATS: GameStats = {
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<SimulationState>(SimulationState.MENU);
+  const gameStateRef = useRef<SimulationState>(gameState);
+  gameStateRef.current = gameState;
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [messages, setMessages] = useState<CommMessage[]>([
     { id: 1, text: INITIAL_INSTRUCTION, source: 'system' },
@@ -461,11 +463,11 @@ const App: React.FC = () => {
     setScenarioSeed(seed.display);
     writeSeedToUrl(seed.display);
     setScoreFlash(null);
-    setArcadeBanner(variant === 'sixty' ? '60-SECOND CHALLENGE — clear the gates, beat the clock.' : 'SHIFT OPEN — clear the gates. Hold PTT to talk.');
+    setArcadeBanner(variant === 'sixty' ? '3-MINUTE SPRINT — clear the gates, beat the clock.' : 'SHIFT OPEN — clear the gates. Hold PTT to talk.');
     setLiveTranscript('');
     setConflictAlarm(false);
     setConflictAlertActive(false);
-    setTimeScale(6);
+    setTimeScale(variant === 'sixty' ? 8 : 6);
     identifyUser('guest-arcade');
     const firstId = scenario.aircraft[0]?.id ?? null;
     setAircraft(scenario.aircraft.map((ac, index) => ({ ...ac, isSelected: index === 0 })));
@@ -473,7 +475,7 @@ const App: React.FC = () => {
     setGameState(SimulationState.RUNNING);
     setScenarioName(plan.name);
     setStatusMessage(`ARCADE: ${plan.name}`);
-    setMessages([{ id: 1, text: variant === 'sixty' ? '60-SECOND CHALLENGE — 60 SECONDS. VOICE, TAP, OR TYPE.' : 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
+    setMessages([{ id: 1, text: variant === 'sixty' ? '3-MINUTE SPRINT — 3 MINUTES AT 8X. VOICE, TAP, OR TYPE.' : 'EXPO ARCADE SHIFT — 5 MINUTES. VOICE, TAP, OR TYPE.', source: 'system' }]);
     setScore(0);
     setStats({ ...INITIAL_STATS, startTime: Date.now() });
     incidentCooldowns.current.clear();
@@ -549,10 +551,15 @@ const App: React.FC = () => {
     incidentCooldowns.current.clear();
     lastTimeRef.current = 0;
 
-    const scheduleNext = () => {
-      const delay = saturationNextIntervalMs(saturationSpawnCountRef.current);
+    const scheduleNext = (overrideDelay?: number) => {
+      const delay = overrideDelay ?? saturationNextIntervalMs(saturationSpawnCountRef.current);
       saturationTimerRef.current = window.setTimeout(() => {
         if (!arcadeActiveRef.current || arcadeVariantRef.current !== 'saturation' || saturationEndedRef.current) return;
+        // Never spawn traffic while the simulation is paused; wait and check again.
+        if (gameStateRef.current !== SimulationState.RUNNING) {
+          scheduleNext(500);
+          return;
+        }
         const idx = saturationSpawnCountRef.current;
         saturationSpawnCountRef.current += 1;
         setAircraft((prev) => {
@@ -1366,13 +1373,8 @@ const App: React.FC = () => {
                   onFinished={finishTutorial}
                 />
 
-                {conflictAlarm && (
-                  <div className="absolute inset-0 z-40 pointer-events-none bg-red-600/25 flex items-center justify-center">
-                    <div className="text-3xl md:text-5xl font-bold text-red-400 drop-shadow-[0_0_20px_rgba(239,68,68,0.9)]">
-                      CONFLICT
-                    </div>
-                  </div>
-                )}
+                {/* Conflicting targets now flash STARS-style CA directly above their data blocks
+                    so the center of the scope stays unobstructed. */}
 
                 {scoreFlash && !conflictAlarm && (
                   <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center">

@@ -120,4 +120,12 @@ describe('parseSpokenClearance', () => {
     expect(parseSpokenClearance('American 421 fly heading three hundred sixty', scope).command).toBe('AAL421 H360');
     expect(parseSpokenClearance('American four twenty one fly heading three six zero', scope).command).toBe('AAL421 H360');
   });
+
+  it('parses natural ATC commands: proceed direct gate, relative turns, and present heading', () => {
+    expect(parseSpokenClearance('American 421 proceed direct south', scope).command).toBe('AAL421 DIRECT SOU');
+    expect(parseSpokenClearance('United 123 direct west', scope).command).toBe('UAL123 DIRECT WES');
+    expect(parseSpokenClearance('American 421 turn 20 degrees left', scope).command).toBe('AAL421 REL_L20');
+    expect(parseSpokenClearance('Delta 456 turn right 30 degrees', scope).command).toBe('DAL456 REL_R30');
+    expect(parseSpokenClearance('Southwest 890 fly present heading', scope).command).toBe('SWA890 PRESENT');
+  });
 });

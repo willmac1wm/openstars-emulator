@@ -92,6 +92,23 @@ const DataBlock: React.FC<DataBlockProps> = ({ aircraft, showPrimaryInfo, labelO
         {/* Invisible hit target for easy right-click leader offset */}
         <rect x="0" y="-12" width="96" height="30" fill="transparent" />
         
+        {/* STARS blinking CA (Conflict Alert) tag directly above conflicting data blocks */}
+        {alertLevel === AlertLevel.CRITICAL && (
+          <text
+            data-testid="datablock-ca"
+            x="5"
+            y="-14"
+            fill={COLOR_ALERT}
+            fontSize="12"
+            fontWeight="bold"
+            fontFamily="monospace"
+            className="animate-pulse"
+            style={{ letterSpacing: '1.5px', pointerEvents: 'none' }}
+          >
+            CA
+          </text>
+        )}
+
         {/* Row 1: Callsign + assigned altitude arrow when climbing/descending */}
         <text 
           x="5" 

@@ -49,7 +49,7 @@ const ArcadeSummary: React.FC<ArcadeSummaryProps> = ({
           </div>
           <div className="text-5xl font-bold text-white">{score}</div>
           {variant === 'sixty' && (
-            <div data-testid="sixty-summary-label" className="text-cyan-300 text-sm font-bold">60-SECOND CHALLENGE</div>
+            <div data-testid="sixty-summary-label" className="text-cyan-300 text-sm font-bold">3-MINUTE SPRINT</div>
           )}
           {variant === 'saturation' && (
             <div data-testid="saturation-summary-label" className="text-red-300 text-sm font-bold">

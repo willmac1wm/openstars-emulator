@@ -137,15 +137,15 @@ const MainMenu: React.FC<MainMenuProps> = ({
       key="Expo60"
       type="button"
       data-testid="mode-Expo60"
-      onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sixty-1' })}
+      onClick={() => onStart({ difficulty: 'Expo60', seedLabel: 'sprint-1' })}
       className="w-full flex items-center justify-between p-4 md:p-5 rounded border transition-all text-left bg-black border-gray-800 text-gray-500 hover:border-green-500 hover:text-white"
     >
       <div>
         <div className="font-bold text-lg md:text-xl flex items-center gap-2 text-gray-200">
           <Timer size={16} className="text-cyan-400" />
-          60-SECOND CHALLENGE
+          3-MINUTE SPRINT
         </div>
-        <div className="text-xs md:text-sm opacity-70">Beat the clock · waves at 0 / 12 / 18s</div>
+        <div className="text-xs md:text-sm opacity-70">Fast 8x traffic · beat the clock · waves at 0 / 12 / 30s</div>
       </div>
       <span className="text-green-500 text-xl" aria-hidden>›</span>
     </button>

@@ -170,14 +170,14 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     if (nextNarration) prewarmInstructor(nextNarration);
 
     if (state.phase === 'demo' && step.demo?.length) {
-      speakInstructor(step.narration, { prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
       void runDemo(step.demo);
       return;
     }
 
     if (state.phase === 'narrating') {
       stopInstructorSpeech();
-      speakInstructor(step.narration, { prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
       if (step.dwellMs && step.dwellMs > 0) {
         const t = window.setTimeout(() => {
           setState((s) => {
@@ -192,7 +192,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     }
 
     if (state.phase === 'waiting' || state.phase === 'hint') {
-      speakInstructor(step.narration, { prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
       armIdle(state.phase);
     }
   }, [active, state, runDemo, armIdle]);

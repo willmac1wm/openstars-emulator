@@ -48,16 +48,16 @@ describe('arcade round plan', () => {
   });
 });
 
-describe('buildSixtySecondRound', () => {
-  it('lasts 60 seconds with every wave inside the minute and no curveball', () => {
-    const plan = buildSixtySecondRound('sixty-test');
-    expect(plan.durationMs).toBe(60_000);
-    expect(plan.name).toBe('60-Second Challenge');
+describe('buildSixtySecondRound (3-Minute Sprint)', () => {
+  it('lasts 3 minutes with every wave inside the sprint and no curveball', () => {
+    const plan = buildSixtySecondRound('sprint-test');
+    expect(plan.durationMs).toBe(180_000);
+    expect(plan.name).toBe('3-Minute Sprint');
     plan.waveAtMs.forEach((at) => expect(at).toBeLessThan(plan.durationMs));
     expect(plan.curveball).toBeNull();
     expect(plan.waves.length).toBe(3);
     // Same seeded traffic as the full round for the waves it shares.
     expect(plan.waves[0][0].callsign).toBe('AAL421');
-    expect(plan.waveAtMs[2]).toBe(18_000);
+    expect(plan.waveAtMs[2]).toBe(30_000);
   });
 });
