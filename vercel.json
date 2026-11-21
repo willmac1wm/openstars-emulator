@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install --onnxruntime-node-install-cuda=skip",
   "headers": [
     {
       "source": "/voice/(.*)",
