@@ -1,7 +1,7 @@
 import { Aircraft, GameScenario, ScenarioDifficulty } from '../types';
 import { createSeededRandom } from './seededRandom';
 import { DEFAULT_SCENARIO_SEEDS, resolveSeedInput } from './scenarioSeed';
-import { LESSON_SPAWN_DISTANCE_NM, placeNearGateAircraft } from './spawnTraffic';
+import { placeInboundAircraft } from './spawnTraffic';
 
 export { DEFAULT_SCENARIO_SEEDS };
 
@@ -58,7 +58,7 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string | numb
     const altitude = 60 + ((index * 17) % 40);
     const speed = 200 + ((index * 13) % 50);
     aircraft.push(
-      placeNearGateAircraft(
+      placeInboundAircraft(
         {
           callsign: fleet.callsign,
           type: fleet.type,
@@ -69,7 +69,6 @@ export function buildLocalScenario(difficulty: string, seedLabel?: string | numb
         },
         aircraft,
         random,
-        { distanceNm: LESSON_SPAWN_DISTANCE_NM },
       ),
     );
   }

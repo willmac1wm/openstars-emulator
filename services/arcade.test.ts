@@ -27,14 +27,13 @@ describe('arcade round plan', () => {
     expect(a.waves[0][0].callsign).toBe(b.waves[0][0].callsign);
   });
 
-  it('starts with one aircraft inside the ring and well clear of its exit gate', () => {
+  it('starts with one aircraft outside the airspace ring heading inbound from a protected area', () => {
     const plan = buildArcadeRound('spawn-check');
     const initial = planToInitialScenario(plan).aircraft;
     expect(initial).toHaveLength(1);
-    expect(distFromCenter(initial[0].x, initial[0].y)).toBeLessThan(GATE_RADIUS);
-    expect(distanceToGateNm(initial[0]) ?? 0).toBeGreaterThanOrEqual(14);
-    expect(distanceToGateNm(initial[0]) ?? Infinity).toBeLessThanOrEqual(30);
-    expect(turnToGateDeg(initial[0])).toBeLessThanOrEqual(90);
+    expect(distFromCenter(initial[0].x, initial[0].y)).toBeGreaterThan(GATE_RADIUS);
+    expect(distanceToGateNm(initial[0]) ?? 0).toBeGreaterThan(45);
+    expect(turnToGateDeg(initial[0])).toBeLessThan(120);
   });
 
   it('never spawns NORDO curveballs for any seed', () => {

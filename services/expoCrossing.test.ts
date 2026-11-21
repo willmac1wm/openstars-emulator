@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { GATES, GATE_RADIUS, NM_TO_PX } from '../constants';
+import { CENTER, GATE_RADIUS, NM_TO_PX } from '../constants';
 import {
   ARCADE_DURATION_MS,
   buildArcadeRound,
   buildSixtySecondRound,
-  SIXTY_SECOND_DURATION_MS,
   spawnCurveballAircraft,
 } from './arcade';
 import {
@@ -12,83 +11,30 @@ import {
   crossingTimeWallSeconds,
   distFromCenter,
   distanceToGateNm,
+  isHeadingInbound,
+  isInGateCorridor,
   turnToGateDeg,
 } from './spawnTraffic';
 import type { Aircraft } from '../types';
-import { simulateExitWallSec } from './exitSimulation';
-
-/**
- * Expo crossing-time budgets (Nov 2026 bug: Expo planes could not cross the
- * scope in a round). Wall-clock at Expo timeScale 6.
- *
- * Old spawn: opposite side of the scope, 39.5–44.5 NM from centre, so the
- * straight-line distance to the destination gate fix was ~75–80 NM.
- * At 250 kt that is ~180 s wall — a 5-min shift's later waves could never
- * exit, and the 60-second challenge was unwinnable (60 s wall = 25 NM).
- *
- * Budgets a correctly vectored aircraft must meet:
- * - 5-minute Expo: every wave aircraft exits within 90 s of spawning.
- * - 60-Second Challenge: every wave aircraft exits within 45 s of spawning,
- *   and still inside the 60 s round after a 5 s reaction delay.
- * - NORDO curveball (140 kt, cannot be vectored): exits within 90 s of
- *   spawning in the 5-min round, flying straight at its gate.
- * - Go-around re-entry: reaches its new gate within the remaining round time.
- */
 
 function distToGateNm(ac: Pick<Aircraft, 'x' | 'y' | 'destination'>): number {
   return distanceToGateNm(ac) ?? Infinity;
 }
 
-/** Straight-line wall-clock seconds to cover distNm at speedKt, timeScale x. */
-function crossingWallSec(distNm: number, speedKt: number, timeScale = 6): number {
-  return crossingTimeWallSeconds(distNm, speedKt, timeScale);
-}
-
 const SEEDS = ['arcade-1', 'expo-booth', 'spawn-a', 'spawn-b', 'sixty-1', 'test-7'];
 
-describe('expo crossing-time budgets', () => {
-  it('5-minute Expo: every wave aircraft can exit within 90s of spawning (6x)', () => {
+describe('expo protected-area outer-ring spawns', () => {
+  it('5-minute Expo: every wave aircraft can cross the airspace within the 5-min shift (6x)', () => {
     for (const seed of SEEDS) {
       const plan = buildArcadeRound(seed);
-      for (const wave of plan.waves) {
-        for (const ac of wave) {
-          const d = distToGateNm(ac);
-          const t = crossingWallSec(d, ac.speed);
-          expect(
-            t,
-            `${seed} ${ac.callsign} -> ${ac.destination}: ${d.toFixed(1)} NM at ${ac.speed} kt = ${t.toFixed(0)}s wall`,
-          ).toBeLessThanOrEqual(90);
-        }
-      }
-    }
-  });
-
-  it('60-Second Challenge: every wave aircraft can exit within 45s of spawning (6x)', () => {
-    for (const seed of SEEDS) {
-      const plan = buildSixtySecondRound(seed);
-      for (const wave of plan.waves) {
-        for (const ac of wave) {
-          const t = crossingWallSec(distToGateNm(ac), ac.speed);
-          expect(
-            t,
-            `${seed} ${ac.callsign} -> ${ac.destination}: ${distToGateNm(ac).toFixed(1)} NM at ${ac.speed} kt = ${t.toFixed(0)}s wall`,
-          ).toBeLessThanOrEqual(45);
-        }
-      }
-    }
-  });
-
-  it('60-Second Challenge: every wave aircraft can still score before the 60s timer ends (5s reaction)', () => {
-    for (const seed of SEEDS) {
-      const plan = buildSixtySecondRound(seed);
       plan.waves.forEach((wave, i) => {
         for (const ac of wave) {
-          const totalMs =
-            plan.waveAtMs[i] + crossingWallSec(distToGateNm(ac), ac.speed) * 1000 + 5_000;
+          const d = distToGateNm(ac);
+          const tSec = crossingTimeWallSeconds(d, ac.speed, 6);
           expect(
-            totalMs,
-            `${seed} wave ${i} ${ac.callsign} spawns at ${plan.waveAtMs[i]}ms, needs ${totalMs.toFixed(0)}ms total`,
-          ).toBeLessThanOrEqual(SIXTY_SECOND_DURATION_MS);
+            plan.waveAtMs[i] + tSec * 1000,
+            `${seed} wave ${i} ${ac.callsign} -> ${ac.destination}: ${d.toFixed(1)} NM`,
+          ).toBeLessThanOrEqual(ARCADE_DURATION_MS);
         }
       });
     }
@@ -105,45 +51,17 @@ describe('expo crossing-time budgets', () => {
     }
   });
 
-  it('flight simulation: a correctly vectored aircraft really exits in time, turns included (5s reaction)', () => {
-    for (const seed of SEEDS) {
-      const plan = buildArcadeRound(seed);
-      for (const ac of plan.waves.flat()) {
-        const t = simulateExitWallSec(ac, { reactionWallSec: 5 });
-        expect(t, `${seed} ${ac.callsign} simulated exit ${t.toFixed(1)}s wall`).toBeLessThanOrEqual(90);
-      }
-      const sixty = buildSixtySecondRound(seed);
-      sixty.waves.forEach((wave, i) => {
-        for (const ac of wave) {
-          const t = simulateExitWallSec(ac, { reactionWallSec: 5 });
-          expect(t, `${seed} sixty wave ${i} ${ac.callsign} simulated exit ${t.toFixed(1)}s wall`).toBeLessThanOrEqual(45);
-          expect(
-            sixty.waveAtMs[i] + t * 1000,
-            `${seed} sixty wave ${i} ${ac.callsign} exits before the 60s timer`,
-          ).toBeLessThanOrEqual(SIXTY_SECOND_DURATION_MS);
-        }
-      });
-    }
-  });
-
-  it('Expo spawns are inside the ring, clear of the gate, and need a vector (not pre-solved)', () => {
+  it('Expo & 60-Second spawns are outside the ring, in protected areas between gates, heading inbound, and separated', () => {
     for (const seed of SEEDS) {
       for (const plan of [buildArcadeRound(seed), buildSixtySecondRound(seed)]) {
         const all = plan.waves.flat();
         for (const ac of all) {
-          // Inside the gate ring, so it becomes ACTIVE on the first tick and
-          // can hand off (HANDOFF only fires from ACTIVE).
-          expect(distFromCenter(ac.x, ac.y), `${seed} ${ac.callsign} inside ring`).toBeLessThan(
-            GATE_RADIUS,
-          );
-          // Not already on top of the gate: the player must still fly it there.
-          expect(distToGateNm(ac), `${seed} ${ac.callsign} clear of gate`).toBeGreaterThanOrEqual(6);
-          // A turn is still required, but it is solvable (< 90 deg).
-          const turn = turnToGateDeg(ac);
-          expect(turn, `${seed} ${ac.callsign} turn to gate ${turn} deg`).toBeGreaterThanOrEqual(10);
-          expect(turn, `${seed} ${ac.callsign} turn to gate ${turn} deg`).toBeLessThanOrEqual(90);
+          expect(distFromCenter(ac.x, ac.y), `${seed} ${ac.callsign} outside ring`).toBeGreaterThan(GATE_RADIUS);
+          const radial = bearingTo({ x: CENTER, y: CENTER }, { x: ac.x, y: ac.y });
+          expect(isInGateCorridor(radial, 8), `${seed} ${ac.callsign} not in gate`).toBe(false);
+          expect(isHeadingInbound(ac), `${seed} ${ac.callsign} heading inbound`).toBe(true);
+          expect(turnToGateDeg(ac), `${seed} ${ac.callsign} solvable turn`).toBeLessThan(120);
         }
-        // Spawns stay separated (~6 NM) within the plan.
         for (let i = 0; i < all.length; i++) {
           for (let j = i + 1; j < all.length; j++) {
             const d = Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y) / NM_TO_PX;

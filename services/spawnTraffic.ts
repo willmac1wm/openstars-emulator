@@ -13,9 +13,9 @@
 import { Aircraft, AlertLevel } from '../types';
 import { CENTER, GATE_RADIUS, GATES, NM_TO_PX } from '../constants';
 
-/** Just outside the gate ring (scope edge / outer ring). LESSON modes only. */
-export const SPAWN_EDGE_MIN = GATE_RADIUS + 45;
-export const SPAWN_EDGE_MAX = GATE_RADIUS + 95;
+/** Just outside the airspace ring (37–39 NM from center), visible on the scope edge. */
+export const SPAWN_EDGE_MIN = GATE_RADIUS + 20;
+export const SPAWN_EDGE_MAX = GATE_RADIUS + 40;
 /** Minimum separation between spawns (~6 NM). */
 export const SPAWN_SEP_PX = 6 * NM_TO_PX;
 
@@ -127,14 +127,43 @@ export function inboundHeading(angleDeg: number, offsetDeg = 0): number {
 }
 
 /**
- * Spawn angle band opposite the destination gate so a normal turn reaches it
- * without needing a 180° at the boundary.
+ * Protected dead-zone bands BETWEEN the 4 exit gates (NOR 20-50, EAS 90-120,
+ * SOU 180-210, WES 270-300). Every inbound aircraft spawns outside the ring
+ * inside one of these protected areas so inbound traffic never enters through
+ * an exit gate corridor.
+ */
+export const PROTECTED_SPAWN_BANDS: Record<'NW' | 'NE' | 'SE' | 'SW', { min: number; max: number }> = {
+  NW: { min: 315, max: 5 },
+  NE: { min: 62, max: 78 },
+  SE: { min: 135, max: 165 },
+  SW: { min: 225, max: 255 },
+};
+
+const OPPOSITE_PROTECTED_BANDS: Record<string, Array<{ min: number; max: number }>> = {
+  NOR: [PROTECTED_SPAWN_BANDS.SW, PROTECTED_SPAWN_BANDS.SE],
+  EAS: [PROTECTED_SPAWN_BANDS.NW, PROTECTED_SPAWN_BANDS.SW],
+  SOU: [PROTECTED_SPAWN_BANDS.NW, PROTECTED_SPAWN_BANDS.NE],
+  WES: [PROTECTED_SPAWN_BANDS.SE, PROTECTED_SPAWN_BANDS.NE],
+};
+
+/** True when bearingDeg (0-360) falls inside any exit gate corridor (±bufferDeg). */
+export function isInGateCorridor(bearingDeg: number, bufferDeg = 8): boolean {
+  const b = normalizeHeading(bearingDeg);
+  return GATES.some((g) => {
+    const start = normalizeHeading(g.startAngle - bufferDeg);
+    const end = normalizeHeading(g.endAngle + bufferDeg);
+    if (start <= end) return b >= start && b <= end;
+    return b >= start || b <= end;
+  });
+}
+
+/**
+ * Primary protected dead-zone spawn band opposite the destination gate
+ * (strictly outside every exit gate corridor).
  */
 export function spawnAngleBandForGate(destination: string): { min: number; max: number } {
-  const mid = GATE_MID[destination] ?? 0;
-  // Opposite side of the scope (±25°).
-  const opposite = normalizeHeading(mid + 180);
-  return { min: normalizeHeading(opposite - 25), max: normalizeHeading(opposite + 25) };
+  const bands = OPPOSITE_PROTECTED_BANDS[destination];
+  return bands ? bands[0] : PROTECTED_SPAWN_BANDS.NW;
 }
 
 function angleInBand(random: () => number, min: number, max: number): number {
@@ -156,31 +185,56 @@ export interface SpawnSpec {
 }
 
 /**
- * Place one aircraft on the outer ring, heading inbound, separated from others.
+ * Place one aircraft outside the airspace ring in a protected dead zone
+ * between the gates, heading inbound and separated from existing traffic.
  */
 export function placeInboundAircraft(
   spec: SpawnSpec,
   existing: Aircraft[],
   random: () => number,
 ): Aircraft {
-  const band = spawnAngleBandForGate(spec.destination);
+  const bands = OPPOSITE_PROTECTED_BANDS[spec.destination] ?? [PROTECTED_SPAWN_BANDS.NW, PROTECTED_SPAWN_BANDS.SE];
   let chosen = { x: CENTER, y: CENTER, heading: 0, angle: 0, dist: SPAWN_EDGE_MAX };
   let placed = false;
 
-  for (let attempt = 0; attempt < 28 && !placed; attempt++) {
+  for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+    const band = bands[Math.floor(random() * bands.length)];
     const angle = angleInBand(random, band.min, band.max);
     const dist = SPAWN_EDGE_MIN + random() * (SPAWN_EDGE_MAX - SPAWN_EDGE_MIN);
     const p = polarPos(angle, dist);
     const crowded = existing.some((ac) => Math.hypot(ac.x - p.x, ac.y - p.y) < SPAWN_SEP_PX);
     if (crowded) continue;
-    const offset = (random() - 0.5) * 24; // ±12° around pure inbound
+    // Slight ±8° offset around pure inbound so it enters cleanly through the protected area
+    // without clipping an adjacent gate corridor.
+    const offset = (random() - 0.5) * 16;
     chosen = { ...p, heading: inboundHeading(angle, offset), angle, dist };
     placed = true;
   }
 
   if (!placed) {
+    // Systematic fallback across all protected dead zones (never inside a gate).
+    const allBands = [...bands, ...Object.values(PROTECTED_SPAWN_BANDS)];
+    for (const band of allBands) {
+      for (let dist = SPAWN_EDGE_MIN; dist <= SPAWN_EDGE_MAX + 30 && !placed; dist += 12) {
+        for (const t of [0.5, 0.25, 0.75, 0.1, 0.9]) {
+          const angle = angleInBand(() => t, band.min, band.max);
+          const p = polarPos(angle, dist);
+          const crowded = existing.some((ac) => Math.hypot(ac.x - p.x, ac.y - p.y) < SPAWN_SEP_PX);
+          if (!crowded) {
+            chosen = { ...p, heading: inboundHeading(angle, 0), angle, dist };
+            placed = true;
+            break;
+          }
+        }
+      }
+      if (placed) break;
+    }
+  }
+
+  if (!placed) {
+    const band = bands[0];
     const angle = angleInBand(() => 0.5, band.min, band.max);
-    const dist = SPAWN_EDGE_MAX + existing.length * 15;
+    const dist = SPAWN_EDGE_MAX + existing.length * 10;
     const p = polarPos(angle, dist);
     chosen = { ...p, heading: inboundHeading(angle, 0), angle, dist };
   }

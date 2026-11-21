@@ -3,7 +3,7 @@ import { createSeededRandom, seedFromLabel } from './seededRandom';
 import {
   EXPO_SIXTY_SPAWN_DISTANCE_NM,
   EXPO_SPAWN_DISTANCE_NM,
-  placeNearGateAircraft,
+  placeInboundAircraft,
 } from './spawnTraffic';
 
 export const ARCADE_DURATION_MS = 5 * 60 * 1000;
@@ -74,11 +74,10 @@ function buildArcadeRoundPlan(
     speed: number,
     special?: Aircraft['special'],
   ) => {
-    const ac = placeNearGateAircraft(
+    const ac = placeInboundAircraft(
       { callsign, type, destination, altitude, speed, special, idPrefix: 'arcade' },
       placed,
       random,
-      { distanceNm: opts.distanceNm },
     );
     placed.push(ac);
     return ac;
