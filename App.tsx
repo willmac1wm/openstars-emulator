@@ -112,7 +112,6 @@ const App: React.FC = () => {
   const [timeScale, setTimeScale] = useState(DEFAULT_TIME_SCALE);
   const [showPrimaryData, setShowPrimaryData] = useState(true);
   const [showJRings, setShowJRings] = useState(() => getDisplaySettings().jRings3Nm);
-  const [scanAngle, setScanAngle] = useState(0);
 
   useEffect(() => subscribeDisplaySettings((s) => setShowJRings(s.jRings3Nm)), []);
   
@@ -1018,12 +1017,16 @@ const App: React.FC = () => {
   const animate = (time: number) => {
     if (lastTimeRef.current === 0) { lastTimeRef.current = time; requestRef.current = requestAnimationFrame(animate); return; }
     const delta = time - lastTimeRef.current;
-    const deltaSeconds = delta / 1000; 
     if (gameState === SimulationState.RUNNING) {
-        setScanAngle(prev => (prev + (deltaSeconds * 90)) % 360); 
-        if (delta > 0) updatePhysics(deltaSeconds);
+        // Update physics at ~20 fps (50 ms) with exact elapsed deltaSeconds —
+        // cuts React re-renders by ~66% while keeping radar sweep silky 60 fps on GPU.
+        if (delta >= 50) {
+          updatePhysics(delta / 1000);
+          lastTimeRef.current = time;
+        }
+    } else {
         lastTimeRef.current = time;
-    } else { lastTimeRef.current = time; }
+    }
     requestRef.current = requestAnimationFrame(animate);
   };
 
@@ -1352,7 +1355,7 @@ const App: React.FC = () => {
                 <RadarScope
                   aircraft={aircraft}
                   onSelectAircraft={handleSelect}
-                  scanAngle={scanAngle}
+                  sweepRunning={gameState === SimulationState.RUNNING}
                   showPrimaryData={showPrimaryData}
                   showJRings={showJRings}
                   highlightGateId={selectedAircraft?.destination ?? null}
@@ -1520,7 +1523,6 @@ const App: React.FC = () => {
             onSpeechError={handleSpeechError}
             onIssue={handleCommand}
             onFullscreen={requestFullscreen}
-            onExit={returnToMenu}
             tutorial={tutorialActive}
             activeCallsigns={aircraft.filter((a) => a.status === 'ACTIVE').map((a) => a.callsign)}
             showTapPad={showTapPad}

@@ -105,4 +105,4 @@ const FlightStripBay: React.FC<FlightStripBayProps> = ({ aircraft, onSelect, sel
   );
 };
 
-export default FlightStripBay;
+export default React.memo(FlightStripBay);

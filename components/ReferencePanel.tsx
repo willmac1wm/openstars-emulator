@@ -111,4 +111,4 @@ const ReferencePanel: React.FC<ReferencePanelProps> = ({
   );
 };
 
-export default ReferencePanel;
+export default React.memo(ReferencePanel);

@@ -212,4 +212,4 @@ const VoiceBar: React.FC = () => {
   );
 };
 
-export default VoiceBar;
+export default React.memo(VoiceBar);

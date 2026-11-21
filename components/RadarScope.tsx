@@ -27,7 +27,9 @@ interface RblPoint {
 interface RadarScopeProps {
   aircraft: Aircraft[];
   onSelectAircraft: (id: string) => void;
-  scanAngle: number; // For the sweeping line effect
+  scanAngle?: number; // Legacy optional prop (sweep is now GPU-animated)
+  /** Whether the GPU radar sweep animation is running. */
+  sweepRunning?: boolean;
   showPrimaryData: boolean; // Global data block toggle state
   /** When true, draw a 3 NM J-ring around every target. */
   showJRings?: boolean;
@@ -54,7 +56,7 @@ function computeBearingDeg(from: { x: number; y: number }, to: { x: number; y: n
 const RadarScope: React.FC<RadarScopeProps> = ({
   aircraft,
   onSelectAircraft,
-  scanAngle,
+  sweepRunning = true,
   showPrimaryData,
   showJRings = false,
   highlightGateId = null,
@@ -378,12 +380,10 @@ const RadarScope: React.FC<RadarScopeProps> = ({
     return ticks;
   }, []);
 
-  // Calculate sweep line coordinates
+  // Radar sweep center & radius (rotated on GPU via CSS animation — 0 React re-renders)
   const cx = MAP_SIZE / 2;
   const cy = MAP_SIZE / 2;
-  const radius = 600; 
-  const sweepX = cx + radius * Math.cos((scanAngle - 90) * (Math.PI / 180));
-  const sweepY = cy + radius * Math.sin((scanAngle - 90) * (Math.PI / 180));
+  const radius = 600;
 
   // De-conflict datablocks: when two labels would land on top of each other
   // (aircraft clustered near the centre), stack the later one down in 34px
@@ -602,14 +602,25 @@ const RadarScope: React.FC<RadarScopeProps> = ({
         </g>
       )}
 
-      {/* Radar Sweep Line */}
-      <line 
-        x1={cx} y1={cy} 
-        x2={sweepX} y2={sweepY} 
-        stroke="rgba(20, 241, 149, 0.3)" 
-        strokeWidth="2"
-        style={{ filter: 'blur(2px)' }}
-      />
+      {/* GPU-animated Radar Sweep Line (4s full 360° rotation, paused cleanly when sim pauses) */}
+      <g
+        style={{
+          transformOrigin: `${cx}px ${cy}px`,
+          animation: 'radar-sweep 4s linear infinite',
+          animationPlayState: sweepRunning ? 'running' : 'paused',
+          pointerEvents: 'none',
+        }}
+      >
+        <line
+          x1={cx}
+          y1={cy}
+          x2={cx}
+          y2={cy - radius}
+          stroke="rgba(20, 241, 149, 0.3)"
+          strokeWidth="2"
+          style={{ filter: 'blur(2px)' }}
+        />
+      </g>
       
     </svg>
   );
