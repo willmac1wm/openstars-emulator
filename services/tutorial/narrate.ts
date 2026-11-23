@@ -17,6 +17,24 @@ export type InstructorEngine = 'kokoro' | 'webspeech';
 let lastEngine: InstructorEngine = 'kokoro';
 const engineListeners = new Set<(engine: InstructorEngine) => void>();
 let activeClip: HTMLAudioElement | null = null;
+let clipGeneration = 0;
+
+function stopActiveClip(): void {
+  clipGeneration += 1;
+  if (!activeClip) return;
+  const clip = activeClip;
+  activeClip = null;
+  // Detach handlers BEFORE clearing src so browsers never fire onerror → fallbackTts!
+  clip.onended = null;
+  clip.onerror = null;
+  try {
+    clip.pause();
+    clip.removeAttribute('src');
+    clip.load();
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Track narrations requested (for E2E assertions). */
 const narrationLog: string[] = [];
@@ -59,15 +77,7 @@ export function speakInstructor(
   }
 
   // Always stop any prior clip AND any prior TTS before starting a new line.
-  if (activeClip) {
-    try {
-      activeClip.pause();
-      activeClip.src = '';
-    } catch {
-      /* ignore */
-    }
-    activeClip = null;
-  }
+  stopActiveClip();
   stopInstructorAudio();
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
@@ -77,7 +87,9 @@ export function speakInstructor(
     }
   }
 
+  const gen = clipGeneration;
   const fallbackTts = () => {
+    if (gen !== clipGeneration) return;
     const natural = isInstructorNaturalReady() && getVoiceRuntime().neuralFastEnough;
     setEngine(natural ? 'kokoro' : 'webspeech');
     speakInstructorLine(text, {
@@ -94,20 +106,22 @@ export function speakInstructor(
       opts.onend?.();
       return;
     }
-    stopInstructorAudio();
     const clip = new Audio(`/audio/tutorial/${opts.stepId}.mp3`);
     clip.volume = settings.volume;
     clip.onended = () => {
+      if (gen !== clipGeneration) return;
       if (activeClip === clip) activeClip = null;
       opts.onend?.();
     };
     clip.onerror = () => {
+      if (gen !== clipGeneration) return;
       if (activeClip === clip) activeClip = null;
       fallbackTts();
     };
     activeClip = clip;
     setEngine('kokoro');
     void clip.play().catch(() => {
+      if (gen !== clipGeneration) return;
       if (activeClip === clip) activeClip = null;
       fallbackTts();
     });
@@ -117,17 +131,46 @@ export function speakInstructor(
   fallbackTts();
 }
 
-export function stopInstructorSpeech(): void {
-  if (activeClip) {
+export function pauseInstructorSpeech(): void {
+  if (activeClip && !activeClip.paused) {
     try {
       activeClip.pause();
-      activeClip.src = '';
     } catch {
       /* ignore */
     }
-    activeClip = null;
   }
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.pause();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function resumeInstructorSpeech(): void {
+  if (activeClip && activeClip.paused) {
+    void activeClip.play().catch(() => undefined);
+  }
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.resume();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function stopInstructorSpeech(): void {
+  stopActiveClip();
   stopInstructorAudio();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function prewarmInstructor(text: string): void {

@@ -7,6 +7,8 @@ interface Props {
   state: TutorialState;
   voiceEngine?: 'kokoro' | 'webspeech';
   justSucceeded?: boolean;
+  paused?: boolean;
+  onTogglePause?: () => void;
   onNext: () => void;
   onReplay: () => void;
   onSkip: () => void;
@@ -33,6 +35,8 @@ const TutorialOverlay: React.FC<Props> = ({
   state,
   voiceEngine = 'webspeech',
   justSucceeded = false,
+  paused = false,
+  onTogglePause,
   onNext,
   onReplay,
   onSkip,
@@ -164,6 +168,21 @@ const TutorialOverlay: React.FC<Props> = ({
           >
             Next
           </button>
+          {onTogglePause && (
+            <button
+              type="button"
+              data-testid="tutorial-pause"
+              aria-pressed={paused}
+              onClick={onTogglePause}
+              className={`px-3 py-2 rounded border text-sm font-bold min-h-[40px] ${
+                paused
+                  ? 'bg-amber-600 border-amber-400 text-black'
+                  : 'border-cyan-800 text-cyan-200 hover:bg-cyan-950/50'
+              }`}
+            >
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+          )}
           <button
             type="button"
             data-testid="tutorial-replay"

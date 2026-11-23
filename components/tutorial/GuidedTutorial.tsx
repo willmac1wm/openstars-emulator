@@ -9,6 +9,8 @@ import {
 import {
   clearNarrationLog,
   getInstructorEngine,
+  pauseInstructorSpeech,
+  resumeInstructorSpeech,
   speakInstructor,
   stopInstructorSpeech,
   subscribeInstructorEngine,
@@ -54,9 +56,13 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
   const [cursorTarget, setCursorTarget] = useState<string | undefined>();
   const [clicking, setClicking] = useState(false);
   const [justSucceeded, setJustSucceeded] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
   const [voiceEngine, setVoiceEngine] = useState(getInstructorEngine);
   const demoCancel = useRef(false);
   const idleTimer = useRef<number | null>(null);
+  const advanceTimer = useRef<number | null>(null);
   const stepKeyRef = useRef('');
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
@@ -158,18 +164,34 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
 
     if (state.phase === 'narrating') {
       stopInstructorSpeech();
-      speakInstructor(step.narration, { stepId: step.id });
-      if (step.dwellMs && step.dwellMs > 0) {
-        const t = window.setTimeout(() => {
-          setState((s) => {
-            const next = reduceTutorial(s, { type: 'NARRATION_DONE' });
-            armIdle(next.phase);
-            return next;
-          });
-        }, step.dwellMs);
-        return () => window.clearTimeout(t);
+      if (advanceTimer.current) {
+        window.clearTimeout(advanceTimer.current);
+        advanceTimer.current = null;
       }
-      return;
+      const shouldAutoAdvance = Boolean(step.dwellMs && step.dwellMs > 0);
+      speakInstructor(step.narration, {
+        stepId: step.id,
+        onend: shouldAutoAdvance
+          ? () => {
+              if (pausedRef.current) return;
+              advanceTimer.current = window.setTimeout(() => {
+                advanceTimer.current = null;
+                if (pausedRef.current) return;
+                setState((s) => {
+                  const next = reduceTutorial(s, { type: 'NARRATION_DONE' });
+                  armIdle(next.phase);
+                  return next;
+                });
+              }, 800);
+            }
+          : undefined,
+      });
+      return () => {
+        if (advanceTimer.current) {
+          window.clearTimeout(advanceTimer.current);
+          advanceTimer.current = null;
+        }
+      };
     }
 
     if (state.phase === 'waiting' || state.phase === 'hint') {
@@ -244,7 +266,24 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
         state={state}
         voiceEngine={voiceEngine}
         justSucceeded={justSucceeded}
+        paused={paused}
+        onTogglePause={() => {
+          setPaused((prev) => {
+            const next = !prev;
+            if (next) {
+              pauseInstructorSpeech();
+              if (advanceTimer.current) {
+                window.clearTimeout(advanceTimer.current);
+                advanceTimer.current = null;
+              }
+            } else {
+              resumeInstructorSpeech();
+            }
+            return next;
+          });
+        }}
         onNext={() => {
+          setPaused(false);
           stopInstructorSpeech();
           demoCancel.current = true;
           stepKeyRef.current = '';
@@ -255,6 +294,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
           });
         }}
         onReplay={() => {
+          setPaused(false);
           stopInstructorSpeech();
           demoCancel.current = true;
           stepKeyRef.current = '';
