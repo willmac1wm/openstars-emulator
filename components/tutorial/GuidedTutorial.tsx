@@ -9,8 +9,6 @@ import {
 import {
   clearNarrationLog,
   getInstructorEngine,
-  onNaturalVoiceReady,
-  prewarmInstructor,
   speakInstructor,
   stopInstructorSpeech,
   subscribeInstructorEngine,
@@ -66,20 +64,6 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
   stateRef.current = state;
 
   useEffect(() => subscribeInstructorEngine(setVoiceEngine), []);
-
-  // Once natural voice warms mid-tutorial, re-speak the current caption with Kokoro.
-  useEffect(() => {
-    if (!active) return;
-    return onNaturalVoiceReady(() => {
-      const s = stateRef.current;
-      const step = currentStep(s);
-      if (!step || s.completed) return;
-      if (s.phase !== 'narrating' && s.phase !== 'demo' && s.phase !== 'waiting' && s.phase !== 'hint') return;
-      const next = TUTORIAL_STEPS[s.index + 1];
-      speakInstructor(step.narration, { prewarmNext: next?.narration });
-      setVoiceEngine('kokoro');
-    });
-  }, [active]);
 
   const clearIdle = () => {
     if (idleTimer.current) {
@@ -166,18 +150,15 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     const b = bridgeRef.current;
     setCursorTarget(highlightToTestId(step.highlight, b));
 
-    const nextNarration = TUTORIAL_STEPS[state.index + 1]?.narration;
-    if (nextNarration) prewarmInstructor(nextNarration);
-
     if (state.phase === 'demo' && step.demo?.length) {
-      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id });
       void runDemo(step.demo);
       return;
     }
 
     if (state.phase === 'narrating') {
       stopInstructorSpeech();
-      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id });
       if (step.dwellMs && step.dwellMs > 0) {
         const t = window.setTimeout(() => {
           setState((s) => {
@@ -192,7 +173,7 @@ const GuidedTutorial: React.FC<Props> = ({ active, bridge, onFinished, actionRef
     }
 
     if (state.phase === 'waiting' || state.phase === 'hint') {
-      speakInstructor(step.narration, { stepId: step.id, prewarmNext: nextNarration });
+      speakInstructor(step.narration, { stepId: step.id });
       armIdle(state.phase);
     }
   }, [active, state, runDemo, armIdle]);

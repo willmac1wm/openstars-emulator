@@ -58,7 +58,7 @@ export function speakInstructor(
     (window as Window & { __tutorialNarrations?: string[] }).__tutorialNarrations = [...narrationLog];
   }
 
-  // Stop any previous studio clip cleanly.
+  // Always stop any prior clip AND any prior TTS before starting a new line.
   if (activeClip) {
     try {
       activeClip.pause();
@@ -67,6 +67,14 @@ export function speakInstructor(
       /* ignore */
     }
     activeClip = null;
+  }
+  stopInstructorAudio();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
   }
 
   const fallbackTts = () => {
